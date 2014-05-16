@@ -55,7 +55,7 @@ func TestSomething(t *testing.T) {
 
 	job := MapReduceJob{
 		MapReducePipeline: u,
-		ReducerCount:      1,
+		ReducerCount:      2,
 	}
 
 	Run(job)

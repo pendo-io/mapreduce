@@ -139,56 +139,33 @@ func Run(mr MapReduceJob) error {
 
 	close(ch)
 
+	results := make(chan error)
 	for shard := 0; shard < mr.ReducerCount; shard++ {
-		items := shardMappedDataList{
-			feeders: make([]ShardFeeder, 0, len(inputs)),
-			data:    make([]MappedData, 0, len(inputs)),
-			compare: mr,
-		}
+		shards := make([][]MappedData, 0, len(inputs))
 
 		for i := range inputs {
 			if len(shardSets[i][shard].data) > 0 {
-				items.feeders = append(items.feeders, ShardFeeder{shardSets[i][shard].data, 1, i})
-				items.data = append(items.data, shardSets[i][shard].data[0])
+				shards = append(shards, shardSets[i][shard].data)
 			}
 		}
 
-		if len(items.data) == 0 {
-			continue
-		}
-
-		first := items.next()
-		key := first.Key
-		values := make([]interface{}, 1)
-		values[0] = first.Value
-
-		for len(items.data) > 0 {
-			item := items.next()
-
-			if mr.Equal(key, item.Key) {
-				values = append(values, item.Value)
-				continue
-			}
-
-			if result, err := mr.Reduce(key, values); err != nil {
-				return err
-			} else if err := mr.Write(result); err != nil {
-				return err
-			}
-
-			key = item.Key
-			values = values[0:1]
-			values[0] = item.Value
-		}
-
-		if result, err := mr.Reduce(key, values); err != nil {
-			return err
-		} else if err := mr.Write(result); err != nil {
-			return err
+		if len(shards) > 0 {
+			go ReduceTask(mr, mr, shards, results)
 		}
 	}
 
-	return nil
+	jobs = mr.ReducerCount
+	var finalErr error = nil
+	for jobs > 0 {
+		err := <-results
+		if err != nil && finalErr == nil {
+			finalErr = err
+		}
+
+		jobs--
+	}
+
+	return finalErr
 }
 
 func MapTask(mr MapReducePipeline, reader SingleInputReader, shardCount int, ch chan reduceResult) {
@@ -216,4 +193,62 @@ func MapTask(mr MapReducePipeline, reader SingleInputReader, shardCount int, ch 
 	}
 
 	ch <- reduceResult{nil, dataSets}
+}
+
+func ReduceTask(mr MapReducePipeline, writer OutputWriter, inputs [][]MappedData, resultChannel chan error) {
+	inputCount := len(inputs)
+
+	items := shardMappedDataList{
+		feeders: make([]ShardFeeder, 0, inputCount),
+		data:    make([]MappedData, 0, inputCount),
+		compare: mr,
+	}
+
+	for input := range inputs {
+		if len(inputs[input]) > 0 {
+			items.feeders = append(items.feeders, ShardFeeder{inputs[input], 1, input})
+			items.data = append(items.data, inputs[input][0])
+		}
+	}
+
+	if len(items.data) == 0 {
+		resultChannel <- nil
+		return
+	}
+
+	first := items.next()
+	key := first.Key
+	values := make([]interface{}, 1)
+	values[0] = first.Value
+
+	for len(items.data) > 0 {
+		item := items.next()
+
+		if mr.Equal(key, item.Key) {
+			values = append(values, item.Value)
+			continue
+		}
+
+		if result, err := mr.Reduce(key, values); err != nil {
+			resultChannel <- err
+			return
+		} else if err := mr.Write(result); err != nil {
+			resultChannel <- err
+			return
+		}
+
+		key = item.Key
+		values = values[0:1]
+		values[0] = item.Value
+	}
+
+	if result, err := mr.Reduce(key, values); err != nil {
+		resultChannel <- err
+		return
+	} else if err := writer.Write(result); err != nil {
+		resultChannel <- err
+		return
+	}
+
+	resultChannel <- nil
 }
