@@ -1,7 +1,6 @@
 package kyrie
 
 import (
-	"fmt"
 	"sort"
 )
 
@@ -33,7 +32,6 @@ type MapReducePipeline interface {
 
 type MapReduceJob struct {
 	MapReducePipeline
-	ReducerCount int
 }
 
 type mappedDataList struct {
@@ -107,19 +105,17 @@ type reduceResult struct {
 }
 
 func Run(mr MapReduceJob) error {
-	if mr.ReducerCount == 0 {
-		panic(fmt.Errorf("reducer count is zero"))
-	}
-
 	inputs, err := mr.Split()
 	if err != nil {
 		return err
 	}
 
+	reducerCount := mr.WriterCount()
+
 	ch := make(chan reduceResult)
 
 	for _, input := range inputs {
-		go MapTask(mr, input, mr.ReducerCount, ch)
+		go MapTask(mr, input, reducerCount, ch)
 	}
 
 	// we have one set for each input, each set has ReducerCount data sets in it
@@ -140,7 +136,12 @@ func Run(mr MapReduceJob) error {
 	close(ch)
 
 	results := make(chan error)
-	for shard := 0; shard < mr.ReducerCount; shard++ {
+	writers, err := mr.Writers()
+	if err != nil {
+		return err
+	}
+
+	for shard, writer := range writers {
 		shards := make([][]MappedData, 0, len(inputs))
 
 		for i := range inputs {
@@ -150,11 +151,11 @@ func Run(mr MapReduceJob) error {
 		}
 
 		if len(shards) > 0 {
-			go ReduceTask(mr, mr, shards, results)
+			go ReduceTask(mr, writer, shards, results)
 		}
 	}
 
-	jobs = mr.ReducerCount
+	jobs = len(writers)
 	var finalErr error = nil
 	for jobs > 0 {
 		err := <-results
@@ -195,7 +196,7 @@ func MapTask(mr MapReducePipeline, reader SingleInputReader, shardCount int, ch 
 	ch <- reduceResult{nil, dataSets}
 }
 
-func ReduceTask(mr MapReducePipeline, writer OutputWriter, inputs [][]MappedData, resultChannel chan error) {
+func ReduceTask(mr MapReducePipeline, writer SingleOutputWriter, inputs [][]MappedData, resultChannel chan error) {
 	inputCount := len(inputs)
 
 	items := shardMappedDataList{
@@ -232,7 +233,7 @@ func ReduceTask(mr MapReducePipeline, writer OutputWriter, inputs [][]MappedData
 		if result, err := mr.Reduce(key, values); err != nil {
 			resultChannel <- err
 			return
-		} else if err := mr.Write(result); err != nil {
+		} else if err := writer.Write(result); err != nil {
 			resultChannel <- err
 			return
 		}
@@ -249,6 +250,8 @@ func ReduceTask(mr MapReducePipeline, writer OutputWriter, inputs [][]MappedData
 		resultChannel <- err
 		return
 	}
+
+	writer.Close()
 
 	resultChannel <- nil
 }

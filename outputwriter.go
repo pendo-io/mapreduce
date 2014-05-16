@@ -7,6 +7,23 @@ import (
 )
 
 type OutputWriter interface {
+	Writers() ([]SingleOutputWriter, error)
+	WriterCount() int
+}
+
+type MultiOutputWriter struct {
+	writers []SingleOutputWriter
+}
+
+func (m MultiOutputWriter) Writers() ([]SingleOutputWriter, error) {
+	return m.writers, nil
+}
+
+func (m MultiOutputWriter) WriterCount() int {
+	return len(m.writers)
+}
+
+type SingleOutputWriter interface {
 	Write(data interface{}) error
 	Close()
 }
@@ -28,7 +45,7 @@ func (o FileLineOutputWriter) Write(data interface{}) error {
 	return nil
 }
 
-func NewFileLineOutputWriter(path string) (OutputWriter, error) {
+func NewFileLineOutputWriter(path string) (SingleOutputWriter, error) {
 	w, err := os.Create(path)
 	if err != nil {
 		return FileLineOutputWriter{}, err

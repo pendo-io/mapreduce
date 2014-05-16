@@ -43,19 +43,23 @@ func TestSomething(t *testing.T) {
 
 	in := MultiInputReader{[]SingleInputReader{r1, r2}}
 
-	out, err := NewFileLineOutputWriter("test.out")
+	out1, err := NewFileLineOutputWriter("test1.out")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	out2, err := NewFileLineOutputWriter("test2.out")
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	u := uniqueWordCount{}
 	u.InputReader = in
-	u.OutputWriter = out
+	u.OutputWriter = MultiOutputWriter{[]SingleOutputWriter{out1, out2}}
 	u.KeyHandler = StringKeyHandler{}
 
 	job := MapReduceJob{
 		MapReducePipeline: u,
-		ReducerCount:      2,
 	}
 
 	Run(job)
