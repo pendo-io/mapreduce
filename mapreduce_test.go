@@ -8,9 +8,8 @@ import (
 )
 
 type uniqueWordCount struct {
-	MapReduceJob
 	InputReader
-	Comparator
+	KeyHandler
 	OutputWriter
 }
 
@@ -52,7 +51,12 @@ func TestSomething(t *testing.T) {
 	u := uniqueWordCount{}
 	u.InputReader = in
 	u.OutputWriter = out
-	u.Comparator = StringComparator{}
+	u.KeyHandler = StringKeyHandler{}
 
-	Run(u)
+	job := MapReduceJob{
+		MapReducePipeline: u,
+		ReducerCount:      1,
+	}
+
+	Run(job)
 }
