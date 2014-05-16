@@ -1,7 +1,6 @@
 package kyrie
 
 import (
-	"fmt"
 	"sort"
 )
 
@@ -18,12 +17,16 @@ type Reducer interface {
 	Reduce(key interface{}, values []interface{}) (result interface{}, err error)
 }
 
-type MapReducePipeline struct {
-	Input   InputReader
-	Mapper  Mapper
-	Reducer Reducer
-	Output  OutputWriter
-	Compare Comparator
+type MapReducePipeline interface {
+	InputReader
+	Mapper
+	Reducer
+	OutputWriter
+	Comparator
+}
+
+type MapReduceJob struct {
+	Pipeline MapReducePipeline
 }
 
 type mappedDataList struct {
@@ -35,35 +38,38 @@ func (a mappedDataList) Len() int           { return len(a.data) }
 func (a mappedDataList) Swap(i, j int)      { a.data[i], a.data[j] = a.data[j], a.data[i] }
 func (a mappedDataList) Less(i, j int) bool { return a.compare.Less(a.data[i].Key, a.data[j].Key) }
 
-func (mr MapReducePipeline) String() string {
-	return fmt.Sprintf("MapReducePipeline{input=%s, output=%s}", mr.Input, mr.Output)
+type reduceResult struct {
+	error
+	data []MappedData
 }
 
-func (mr MapReducePipeline) Run() error {
-	inputs, err := mr.Input.Split()
+func Run(mr MapReducePipeline) error {
+	inputs, err := mr.Split()
 	if err != nil {
 		return err
 	}
 
-	data := mappedDataList{data: make([]MappedData, 0), compare: mr.Compare}
+	data := mappedDataList{data: make([]MappedData, 0), compare: mr}
+
+	ch := make(chan reduceResult)
 
 	for _, input := range inputs {
-		var err error
-		var item interface{}
-
-		for item, err = input.Next(); item != nil && err == nil; item, err = input.Next() {
-			result, err := mr.Mapper.Map(item)
-			if err != nil {
-				return err
-			}
-
-			data.data = append(data.data, result...)
-		}
-
-		if err != nil {
-			return err
-		}
+		go MapTask(input, mr, ch)
 	}
+
+	jobs := len(inputs)
+	for jobs > 0 {
+		result := <-ch
+		if result.error != nil {
+			return result.error
+		} else if result.data == nil {
+			jobs--
+		}
+
+		data.data = append(data.data, result.data...)
+	}
+
+	close(ch)
 
 	if len(data.data) == 0 {
 		return nil
@@ -75,14 +81,14 @@ func (mr MapReducePipeline) Run() error {
 	values := make([]interface{}, 1)
 	values[0] = data.data[0].Value
 	for i := 1; i < len(data.data); i++ {
-		if mr.Compare.Equal(key, data.data[i].Key) {
+		if mr.Equal(key, data.data[i].Key) {
 			values = append(values, data.data[i].Value)
 			continue
 		}
 
-		if result, err := mr.Reducer.Reduce(key, values); err != nil {
+		if result, err := mr.Reduce(key, values); err != nil {
 			return err
-		} else if err := mr.Output.Write(result); err != nil {
+		} else if err := mr.Write(result); err != nil {
 			return err
 		}
 
@@ -91,11 +97,26 @@ func (mr MapReducePipeline) Run() error {
 		values[0] = data.data[i].Value
 	}
 
-	if result, err := mr.Reducer.Reduce(key, values); err != nil {
+	if result, err := mr.Reduce(key, values); err != nil {
 		return err
-	} else if err := mr.Output.Write(result); err != nil {
+	} else if err := mr.Write(result); err != nil {
 		return err
 	}
 
 	return nil
+}
+
+func MapTask(reader SingleInputReader, mapper Mapper, ch chan reduceResult) {
+
+	for item, err := reader.Next(); item != nil && err == nil; item, err = reader.Next() {
+		var result reduceResult
+		result.data, result.error = mapper.Map(item)
+		ch <- result
+
+		if result.error != nil {
+			break
+		}
+	}
+
+	ch <- reduceResult{nil, nil}
 }

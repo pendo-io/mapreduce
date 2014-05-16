@@ -20,6 +20,14 @@ type FileLineInputReader struct {
 	r    *bufio.Reader
 }
 
+type MultiInputReader struct {
+	readers []SingleInputReader
+}
+
+func (m MultiInputReader) Split() ([]SingleInputReader, error) {
+	return m.readers, nil
+}
+
 func NewFileLineInputReader(path string) (FileLineInputReader, error) {
 	reader, err := os.Open(path)
 	if err != nil {

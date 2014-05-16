@@ -7,7 +7,12 @@ import (
 	"testing"
 )
 
-type uniqueWordCount struct{}
+type uniqueWordCount struct {
+	MapReduceJob
+	InputReader
+	Comparator
+	OutputWriter
+}
 
 func (uwc uniqueWordCount) Map(item interface{}) ([]MappedData, error) {
 	line := item.(string)
@@ -27,22 +32,27 @@ func (uwc uniqueWordCount) Reduce(key interface{}, values []interface{}) (result
 }
 
 func TestSomething(t *testing.T) {
-	in, err := NewFileLineInputReader("test")
+	r1, err := NewFileLineInputReader("test")
 	if err != nil {
 		log.Fatal(err)
 	}
+
+	r2, err := NewFileLineInputReader("test2")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	in := MultiInputReader{[]SingleInputReader{r1, r2}}
 
 	out, err := NewFileLineOutputWriter("test.out")
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	pipe := MapReducePipeline{
-		Input:   in,
-		Output:  out,
-		Mapper:  uniqueWordCount{},
-		Reducer: uniqueWordCount{},
-		Compare: StringComparator{},
-	}
-	pipe.Run()
+	u := uniqueWordCount{}
+	u.InputReader = in
+	u.OutputWriter = out
+	u.Comparator = StringComparator{}
+
+	Run(u)
 }
