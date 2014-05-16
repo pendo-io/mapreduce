@@ -9,6 +9,7 @@ import (
 
 type InputReader interface {
 	Split() ([]SingleInputReader, error)
+	ReaderFromName(name string) (SingleInputReader, error)
 }
 
 type SingleInputReader interface {
@@ -36,6 +37,10 @@ func (m FileLineInputReader) Split() ([]SingleInputReader, error) {
 	}
 
 	return readers, nil
+}
+
+func (m FileLineInputReader) ReaderFromName(path string) (SingleInputReader, error) {
+	return newSingleFileLineInputReader(path)
 }
 
 func newSingleFileLineInputReader(path string) (SingleFileLineInputReader, error) {

@@ -9,6 +9,7 @@ import (
 type OutputWriter interface {
 	Writers() ([]SingleOutputWriter, error)
 	WriterCount() int
+	WriterFromName(name string) (SingleOutputWriter, error)
 }
 
 type FileLineOutputWriter struct {
@@ -19,7 +20,7 @@ func (m FileLineOutputWriter) Writers() ([]SingleOutputWriter, error) {
 	writers := make([]SingleOutputWriter, len(m.Paths))
 	for i := range m.Paths {
 		var err error
-		writers[i], err = NewSingleFileLineOutputWriter(m.Paths[i])
+		writers[i], err = newSingleFileLineOutputWriter(m.Paths[i])
 		if err != nil {
 			return nil, err
 		}
@@ -32,9 +33,14 @@ func (m FileLineOutputWriter) WriterCount() int {
 	return len(m.Paths)
 }
 
+func (m FileLineOutputWriter) WriterFromName(name string) (SingleOutputWriter, error) {
+	return newSingleFileLineOutputWriter(name)
+}
+
 type SingleOutputWriter interface {
 	Write(data interface{}) error
 	Close()
+	ToName() string
 }
 
 type SingleFileLineOutputWriter struct {
@@ -49,12 +55,16 @@ func (o SingleFileLineOutputWriter) String() string {
 	return fmt.Sprintf("SingleFileLineOutputWriter(%s)", o.path)
 }
 
+func (o SingleFileLineOutputWriter) ToName() string {
+	return o.path
+}
+
 func (o SingleFileLineOutputWriter) Write(data interface{}) error {
 	o.w.Write([]byte(fmt.Sprintf("%s\n", data)))
 	return nil
 }
 
-func NewSingleFileLineOutputWriter(path string) (SingleOutputWriter, error) {
+func newSingleFileLineOutputWriter(path string) (SingleOutputWriter, error) {
 	w, err := os.Create(path)
 	if err != nil {
 		return SingleFileLineOutputWriter{}, err

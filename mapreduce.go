@@ -117,7 +117,7 @@ func Run(job MapReduceJob) error {
 	ch := make(chan reduceResult)
 
 	for _, input := range inputs {
-		go MapTask(job, input, reducerCount, ch)
+		go MapTask(job, input.ToName(), reducerCount, ch)
 	}
 
 	// we have one set for each input, each set has ReducerCount data sets in it
@@ -153,7 +153,7 @@ func Run(job MapReduceJob) error {
 		}
 
 		if len(shards) > 0 {
-			go ReduceTask(job, writer, shards, results)
+			go ReduceTask(job, writer.ToName(), shards, results)
 		}
 	}
 
@@ -171,7 +171,13 @@ func Run(job MapReduceJob) error {
 	return finalErr
 }
 
-func MapTask(mr MapReducePipeline, reader SingleInputReader, shardCount int, ch chan reduceResult) {
+func MapTask(mr MapReducePipeline, readerName string, shardCount int, ch chan reduceResult) {
+	reader, err := mr.ReaderFromName(readerName)
+	if err != nil {
+		ch <- reduceResult{err, nil}
+		return
+	}
+
 	MapperFunc(mr, reader, shardCount, ch)
 }
 
@@ -202,7 +208,17 @@ func MapperFunc(mr MapReducePipeline, reader SingleInputReader, shardCount int, 
 	ch <- reduceResult{nil, dataSets}
 }
 
-func ReduceTask(mr MapReducePipeline, writer SingleOutputWriter, inputs [][]MappedData, resultChannel chan error) {
+func ReduceTask(mr MapReducePipeline, writerName string, inputs [][]MappedData, resultChannel chan error) {
+	writer, err := mr.WriterFromName(writerName)
+	if err != nil {
+		resultChannel <- err
+		return
+	}
+
+	ReduceFunc(mr, writer, inputs, resultChannel)
+}
+
+func ReduceFunc(mr MapReducePipeline, writer SingleOutputWriter, inputs [][]MappedData, resultChannel chan error) {
 	inputCount := len(inputs)
 
 	items := shardMappedDataList{
