@@ -19,8 +19,12 @@ type FileLineOutputWriter struct {
 func (o FileLineOutputWriter) Close() {
 }
 
+func (o FileLineOutputWriter) String() string {
+	return fmt.Sprintf("FileLineOutputWriter(%s)", o.path)
+}
+
 func (o FileLineOutputWriter) Write(data interface{}) error {
-	o.w.Write([]byte(fmt.Sprintf("%s", data)))
+	o.w.Write([]byte(fmt.Sprintf("%s\n", data)))
 	return nil
 }
 

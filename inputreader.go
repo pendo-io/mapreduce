@@ -2,6 +2,7 @@ package kyrie
 
 import (
 	"bufio"
+	"fmt"
 	"io"
 	"os"
 )
@@ -15,11 +16,11 @@ type SingleInputReader interface {
 }
 
 type FileLineInputReader struct {
-	Path string
+	path string
 	r    *bufio.Reader
 }
 
-func NewFileLineInputReader(path string) (SingleInputReader, error) {
+func NewFileLineInputReader(path string) (FileLineInputReader, error) {
 	reader, err := os.Open(path)
 	if err != nil {
 		return FileLineInputReader{}, err
@@ -28,13 +29,21 @@ func NewFileLineInputReader(path string) (SingleInputReader, error) {
 	return FileLineInputReader{path, bufio.NewReader(reader)}, nil
 }
 
+func (ir FileLineInputReader) String() string {
+	return fmt.Sprintf("FileLineInputReader(%s)", ir.path)
+}
+
+func (ir FileLineInputReader) Split() ([]SingleInputReader, error) {
+	return []SingleInputReader{ir}, nil
+}
+
 func (ir FileLineInputReader) Next() (interface{}, error) {
 	s, err := ir.r.ReadString('\n')
 	if err == io.EOF {
-		return "", nil
+		return nil, nil
 	} else if err != nil {
 		return "", err
 	}
 
-	return s, nil
+	return s[0 : len(s)-1], nil
 }
