@@ -11,16 +11,25 @@ type OutputWriter interface {
 	WriterCount() int
 }
 
-type MultiOutputWriter struct {
-	writers []SingleOutputWriter
+type FileLineOutputWriter struct {
+	Paths []string
 }
 
-func (m MultiOutputWriter) Writers() ([]SingleOutputWriter, error) {
-	return m.writers, nil
+func (m FileLineOutputWriter) Writers() ([]SingleOutputWriter, error) {
+	writers := make([]SingleOutputWriter, len(m.Paths))
+	for i := range m.Paths {
+		var err error
+		writers[i], err = NewSingleFileLineOutputWriter(m.Paths[i])
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return writers, nil
 }
 
-func (m MultiOutputWriter) WriterCount() int {
-	return len(m.writers)
+func (m FileLineOutputWriter) WriterCount() int {
+	return len(m.Paths)
 }
 
 type SingleOutputWriter interface {
@@ -28,28 +37,28 @@ type SingleOutputWriter interface {
 	Close()
 }
 
-type FileLineOutputWriter struct {
+type SingleFileLineOutputWriter struct {
 	path string
 	w    io.Writer
 }
 
-func (o FileLineOutputWriter) Close() {
+func (o SingleFileLineOutputWriter) Close() {
 }
 
-func (o FileLineOutputWriter) String() string {
-	return fmt.Sprintf("FileLineOutputWriter(%s)", o.path)
+func (o SingleFileLineOutputWriter) String() string {
+	return fmt.Sprintf("SingleFileLineOutputWriter(%s)", o.path)
 }
 
-func (o FileLineOutputWriter) Write(data interface{}) error {
+func (o SingleFileLineOutputWriter) Write(data interface{}) error {
 	o.w.Write([]byte(fmt.Sprintf("%s\n", data)))
 	return nil
 }
 
-func NewFileLineOutputWriter(path string) (SingleOutputWriter, error) {
+func NewSingleFileLineOutputWriter(path string) (SingleOutputWriter, error) {
 	w, err := os.Create(path)
 	if err != nil {
-		return FileLineOutputWriter{}, err
+		return SingleFileLineOutputWriter{}, err
 	}
 
-	return FileLineOutputWriter{path, w}, nil
+	return SingleFileLineOutputWriter{path, w}, nil
 }

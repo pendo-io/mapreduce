@@ -32,6 +32,8 @@ type MapReducePipeline interface {
 
 type MapReduceJob struct {
 	MapReducePipeline
+	Inputs  InputReader
+	Outputs OutputWriter
 }
 
 type mappedDataList struct {
@@ -104,18 +106,18 @@ type reduceResult struct {
 	data []mappedDataList
 }
 
-func Run(mr MapReduceJob) error {
-	inputs, err := mr.Split()
+func Run(job MapReduceJob) error {
+	inputs, err := job.Inputs.Split()
 	if err != nil {
 		return err
 	}
 
-	reducerCount := mr.WriterCount()
+	reducerCount := job.Outputs.WriterCount()
 
 	ch := make(chan reduceResult)
 
 	for _, input := range inputs {
-		go MapTask(mr, input, reducerCount, ch)
+		go MapTask(job, input, reducerCount, ch)
 	}
 
 	// we have one set for each input, each set has ReducerCount data sets in it
@@ -136,7 +138,7 @@ func Run(mr MapReduceJob) error {
 	close(ch)
 
 	results := make(chan error)
-	writers, err := mr.Writers()
+	writers, err := job.Outputs.Writers()
 	if err != nil {
 		return err
 	}
@@ -151,7 +153,7 @@ func Run(mr MapReduceJob) error {
 		}
 
 		if len(shards) > 0 {
-			go ReduceTask(mr, writer, shards, results)
+			go ReduceTask(job, writer, shards, results)
 		}
 	}
 
@@ -170,6 +172,10 @@ func Run(mr MapReduceJob) error {
 }
 
 func MapTask(mr MapReducePipeline, reader SingleInputReader, shardCount int, ch chan reduceResult) {
+	MapperFunc(mr, reader, shardCount, ch)
+}
+
+func MapperFunc(mr MapReducePipeline, reader SingleInputReader, shardCount int, ch chan reduceResult) {
 	dataSets := make([]mappedDataList, shardCount)
 	for i := range dataSets {
 		dataSets[i] = mappedDataList{data: make([]MappedData, 0), compare: mr}

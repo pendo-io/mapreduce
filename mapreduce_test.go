@@ -8,9 +8,9 @@ import (
 )
 
 type uniqueWordCount struct {
-	InputReader
-	KeyHandler
-	OutputWriter
+	FileLineInputReader
+	StringKeyHandler
+	FileLineOutputWriter
 }
 
 func (uwc uniqueWordCount) Map(item interface{}) ([]MappedData, error) {
@@ -31,36 +31,16 @@ func (uwc uniqueWordCount) Reduce(key interface{}, values []interface{}) (result
 }
 
 func TestSomething(t *testing.T) {
-	r1, err := NewFileLineInputReader("test")
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	r2, err := NewFileLineInputReader("test2")
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	in := MultiInputReader{[]SingleInputReader{r1, r2}}
-
-	out1, err := NewFileLineOutputWriter("test1.out")
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	out2, err := NewFileLineOutputWriter("test2.out")
-	if err != nil {
-		log.Fatal(err)
-	}
-
 	u := uniqueWordCount{}
-	u.InputReader = in
-	u.OutputWriter = MultiOutputWriter{[]SingleOutputWriter{out1, out2}}
-	u.KeyHandler = StringKeyHandler{}
 
 	job := MapReduceJob{
 		MapReducePipeline: u,
+		Inputs:            FileLineInputReader{[]string{"test", "test2"}},
+		Outputs:           FileLineOutputWriter{[]string{"test1.out", "test2.out"}},
 	}
 
-	Run(job)
+	err := Run(job)
+	if err != nil {
+		log.Fatal(err)
+	}
 }

@@ -13,39 +13,53 @@ type InputReader interface {
 
 type SingleInputReader interface {
 	Next() (interface{}, error)
+	ToName() string
 }
 
-type FileLineInputReader struct {
+type SingleFileLineInputReader struct {
 	path string
 	r    *bufio.Reader
 }
 
-type MultiInputReader struct {
-	readers []SingleInputReader
+type FileLineInputReader struct {
+	Paths []string
 }
 
-func (m MultiInputReader) Split() ([]SingleInputReader, error) {
-	return m.readers, nil
-}
-
-func NewFileLineInputReader(path string) (FileLineInputReader, error) {
-	reader, err := os.Open(path)
-	if err != nil {
-		return FileLineInputReader{}, err
+func (m FileLineInputReader) Split() ([]SingleInputReader, error) {
+	readers := make([]SingleInputReader, len(m.Paths))
+	for i := range m.Paths {
+		var err error
+		readers[i], err = newSingleFileLineInputReader(m.Paths[i])
+		if err != nil {
+			return nil, err
+		}
 	}
 
-	return FileLineInputReader{path, bufio.NewReader(reader)}, nil
+	return readers, nil
 }
 
-func (ir FileLineInputReader) String() string {
-	return fmt.Sprintf("FileLineInputReader(%s)", ir.path)
+func newSingleFileLineInputReader(path string) (SingleFileLineInputReader, error) {
+	reader, err := os.Open(path)
+	if err != nil {
+		return SingleFileLineInputReader{}, err
+	}
+
+	return SingleFileLineInputReader{path, bufio.NewReader(reader)}, nil
 }
 
-func (ir FileLineInputReader) Split() ([]SingleInputReader, error) {
+func (ir SingleFileLineInputReader) ToName() string {
+	return ir.path
+}
+
+func (ir SingleFileLineInputReader) String() string {
+	return fmt.Sprintf("SingleFileLineInputReader(%s)", ir.path)
+}
+
+func (ir SingleFileLineInputReader) Split() ([]SingleInputReader, error) {
 	return []SingleInputReader{ir}, nil
 }
 
-func (ir FileLineInputReader) Next() (interface{}, error) {
+func (ir SingleFileLineInputReader) Next() (interface{}, error) {
 	s, err := ir.r.ReadString('\n')
 	if err == io.EOF {
 		return nil, nil
