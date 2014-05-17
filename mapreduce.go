@@ -28,6 +28,7 @@ type MapReducePipeline interface {
 	Reducer
 	OutputWriter
 	KeyHandler
+	ValueHandler
 }
 
 type MapReduceJob struct {
@@ -47,7 +48,7 @@ func (a mappedDataList) Less(i, j int) bool { return a.compare.Less(a.data[i].Ke
 
 // this should be a priority queue instead of continually resorting
 type shardMappedDataList struct {
-	feeders []ShardFeeder
+	feeders []IntermediateStorageIterator
 	data    []MappedData
 	compare KeyHandler
 }
@@ -59,14 +60,16 @@ func (a shardMappedDataList) Swap(i, j int) {
 	a.feeders[i], a.feeders[j] = a.feeders[j], a.feeders[i]
 }
 
-func (s *shardMappedDataList) next() MappedData {
+func (s *shardMappedDataList) next() (MappedData, error) {
 	sort.Sort(s)
 	item := s.data[0]
 	if len(s.data) != len(s.feeders) {
 		panic("ACK")
 	}
 
-	if newItem, exists := s.feeders[0].next(); exists {
+	if newItem, exists, err := s.feeders[0].Next(); err != nil {
+		return MappedData{}, err
+	} else if exists {
 		s.data[0] = newItem
 	} else if len(s.data) == 1 {
 		s.data = s.data[0:0]
@@ -83,27 +86,12 @@ func (s *shardMappedDataList) next() MappedData {
 		panic("ACK")
 	}
 
-	return item
-}
-
-type ShardFeeder struct {
-	data      []MappedData
-	nextIndex int
-	name      int
-}
-
-func (sf *ShardFeeder) next() (MappedData, bool) {
-	if sf.nextIndex >= len(sf.data) {
-		return MappedData{}, false
-	}
-
-	sf.nextIndex++
-	return sf.data[sf.nextIndex-1], true
+	return item, nil
 }
 
 type reduceResult struct {
 	error
-	data []mappedDataList
+	storageNames []string
 }
 
 func Run(job MapReduceJob) error {
@@ -113,16 +101,17 @@ func Run(job MapReduceJob) error {
 	}
 
 	reducerCount := job.Outputs.WriterCount()
+	intermediate := &MemoryIntermediateStorage{}
 
 	ch := make(chan reduceResult)
 
 	for _, input := range inputs {
-		go MapTask(job, input.ToName(), reducerCount, ch)
+		go MapTask(job, input.ToName(), intermediate, reducerCount, ch)
 	}
 
 	// we have one set for each input, each set has ReducerCount data sets in it
 	// (each of which is already sorted)
-	shardSets := make([][]mappedDataList, 0, len(inputs))
+	storageNames := make([][]string, 0, len(inputs))
 
 	jobs := len(inputs)
 	for jobs > 0 {
@@ -132,7 +121,7 @@ func Run(job MapReduceJob) error {
 		}
 
 		jobs--
-		shardSets = append(shardSets, result.data)
+		storageNames = append(storageNames, result.storageNames)
 	}
 
 	close(ch)
@@ -144,16 +133,14 @@ func Run(job MapReduceJob) error {
 	}
 
 	for shard, writer := range writers {
-		shards := make([][]MappedData, 0, len(inputs))
+		shards := make([]string, 0, len(inputs))
 
 		for i := range inputs {
-			if len(shardSets[i][shard].data) > 0 {
-				shards = append(shards, shardSets[i][shard].data)
-			}
+			shards = append(shards, storageNames[i][shard])
 		}
 
 		if len(shards) > 0 {
-			go ReduceTask(job, writer.ToName(), shards, results)
+			go ReduceTask(job, writer.ToName(), intermediate, shards, results)
 		}
 	}
 
@@ -171,17 +158,17 @@ func Run(job MapReduceJob) error {
 	return finalErr
 }
 
-func MapTask(mr MapReducePipeline, readerName string, shardCount int, ch chan reduceResult) {
+func MapTask(mr MapReducePipeline, readerName string, intermediate IntermediateStorage, shardCount int, ch chan reduceResult) {
 	reader, err := mr.ReaderFromName(readerName)
 	if err != nil {
 		ch <- reduceResult{err, nil}
 		return
 	}
 
-	MapperFunc(mr, reader, shardCount, ch)
+	MapperFunc(mr, reader, intermediate, shardCount, ch)
 }
 
-func MapperFunc(mr MapReducePipeline, reader SingleInputReader, shardCount int, ch chan reduceResult) {
+func MapperFunc(mr MapReducePipeline, reader SingleInputReader, intermediate IntermediateStorage, shardCount int, ch chan reduceResult) {
 	dataSets := make([]mappedDataList, shardCount)
 	for i := range dataSets {
 		dataSets[i] = mappedDataList{data: make([]MappedData, 0), compare: mr}
@@ -201,37 +188,57 @@ func MapperFunc(mr MapReducePipeline, reader SingleInputReader, shardCount int, 
 		}
 	}
 
+	names := make([]string, len(dataSets))
 	for i := range dataSets {
+		var err error
+
 		sort.Sort(dataSets[i])
+		names[i], err = intermediate.Store(dataSets[i].data, mr, mr)
+		if err != nil {
+			ch <- reduceResult{err, nil}
+			return
+		}
 	}
 
-	ch <- reduceResult{nil, dataSets}
+	ch <- reduceResult{nil, names}
 }
 
-func ReduceTask(mr MapReducePipeline, writerName string, inputs [][]MappedData, resultChannel chan error) {
+func ReduceTask(mr MapReducePipeline, writerName string, intermediate IntermediateStorage, shardNames []string, resultChannel chan error) {
 	writer, err := mr.WriterFromName(writerName)
 	if err != nil {
 		resultChannel <- err
 		return
 	}
 
-	ReduceFunc(mr, writer, inputs, resultChannel)
+	ReduceFunc(mr, writer, intermediate, shardNames, resultChannel)
 }
 
-func ReduceFunc(mr MapReducePipeline, writer SingleOutputWriter, inputs [][]MappedData, resultChannel chan error) {
-	inputCount := len(inputs)
+func ReduceFunc(mr MapReducePipeline, writer SingleOutputWriter, intermediate IntermediateStorage, shardNames []string, resultChannel chan error) {
+	inputCount := len(shardNames)
 
 	items := shardMappedDataList{
-		feeders: make([]ShardFeeder, 0, inputCount),
+		feeders: make([]IntermediateStorageIterator, 0, inputCount),
 		data:    make([]MappedData, 0, inputCount),
 		compare: mr,
 	}
 
-	for input := range inputs {
-		if len(inputs[input]) > 0 {
-			items.feeders = append(items.feeders, ShardFeeder{inputs[input], 1, input})
-			items.data = append(items.data, inputs[input][0])
+	for _, shardName := range shardNames {
+		iterator, err := intermediate.Iterator(shardName)
+		if err != nil {
+			resultChannel <- err
+			return
 		}
+
+		firstItem, exists, err := iterator.Next()
+		if err != nil {
+			resultChannel <- err
+			return
+		} else if !exists {
+			continue
+		}
+
+		items.feeders = append(items.feeders, iterator)
+		items.data = append(items.data, firstItem)
 	}
 
 	if len(items.data) == 0 {
@@ -239,13 +246,23 @@ func ReduceFunc(mr MapReducePipeline, writer SingleOutputWriter, inputs [][]Mapp
 		return
 	}
 
-	first := items.next()
-	key := first.Key
 	values := make([]interface{}, 1)
-	values[0] = first.Value
+	var key interface{}
+
+	if first, err := items.next(); err != nil {
+		resultChannel <- err
+		return
+	} else {
+		key = first.Key
+		values[0] = first.Value
+	}
 
 	for len(items.data) > 0 {
-		item := items.next()
+		item, err := items.next()
+		if err != nil {
+			resultChannel <- err
+			return
+		}
 
 		if mr.Equal(key, item.Key) {
 			values = append(values, item.Value)

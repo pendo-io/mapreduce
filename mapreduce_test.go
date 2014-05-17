@@ -9,8 +9,9 @@ import (
 
 type uniqueWordCount struct {
 	FileLineInputReader
-	StringKeyHandler
 	FileLineOutputWriter
+	StringKeyHandler
+	StringValueHandler
 }
 
 func (uwc uniqueWordCount) Map(item interface{}) ([]MappedData, error) {
