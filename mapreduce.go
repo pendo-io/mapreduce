@@ -29,6 +29,7 @@ type MapReducePipeline interface {
 	OutputWriter
 	KeyHandler
 	ValueHandler
+	IntermediateStorage
 }
 
 type MapReduceJob struct {
@@ -101,12 +102,11 @@ func Run(job MapReduceJob) error {
 	}
 
 	reducerCount := job.Outputs.WriterCount()
-	intermediate := &MemoryIntermediateStorage{}
 
 	ch := make(chan reduceResult)
 
 	for _, input := range inputs {
-		go MapTask(job, input.ToName(), intermediate, reducerCount, ch)
+		go MapTask(job, input.ToName(), job, reducerCount, ch)
 	}
 
 	// we have one set for each input, each set has ReducerCount data sets in it
@@ -140,7 +140,7 @@ func Run(job MapReduceJob) error {
 		}
 
 		if len(shards) > 0 {
-			go ReduceTask(job, writer.ToName(), intermediate, shards, results)
+			go ReduceTask(job, writer.ToName(), job, shards, results)
 		}
 	}
 
@@ -193,7 +193,7 @@ func MapperFunc(mr MapReducePipeline, reader SingleInputReader, intermediate Int
 		var err error
 
 		sort.Sort(dataSets[i])
-		names[i], err = intermediate.Store(dataSets[i].data, mr, mr)
+		names[i], err = intermediate.Store(dataSets[i].data, mr)
 		if err != nil {
 			ch <- reduceResult{err, nil}
 			return
@@ -223,7 +223,7 @@ func ReduceFunc(mr MapReducePipeline, writer SingleOutputWriter, intermediate In
 	}
 
 	for _, shardName := range shardNames {
-		iterator, err := intermediate.Iterator(shardName)
+		iterator, err := intermediate.Iterator(shardName, mr)
 		if err != nil {
 			resultChannel <- err
 			return

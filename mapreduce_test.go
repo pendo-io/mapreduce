@@ -11,7 +11,8 @@ type uniqueWordCount struct {
 	FileLineInputReader
 	FileLineOutputWriter
 	StringKeyHandler
-	StringValueHandler
+	IntValueHandler
+	IntermediateStorage
 }
 
 func (uwc uniqueWordCount) Map(item interface{}) ([]MappedData, error) {
@@ -33,6 +34,7 @@ func (uwc uniqueWordCount) Reduce(key interface{}, values []interface{}) (result
 
 func TestSomething(t *testing.T) {
 	u := uniqueWordCount{}
+	u.IntermediateStorage = &FileIntermediateStorage{PathPattern: "mr-intermediate-%s"}
 
 	job := MapReduceJob{
 		MapReducePipeline: u,

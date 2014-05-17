@@ -8,18 +8,18 @@ type KeyHandler interface {
 	Less(a, b interface{}) bool
 	Equal(a, b interface{}) bool
 	Shard(a interface{}, shardCount int) int
-	KeyDump(a interface{}) string
-	KeyLoad(string) (interface{}, error)
+	KeyDump(a interface{}) []byte
+	KeyLoad([]byte) (interface{}, error)
 }
 
 type StringKeyHandler struct{}
 
-func (s StringKeyHandler) KeyDump(a interface{}) string {
-	return a.(string)
+func (s StringKeyHandler) KeyDump(a interface{}) []byte {
+	return []byte(a.(string))
 }
 
-func (s StringKeyHandler) KeyLoad(a string) (interface{}, error) {
-	return a, nil
+func (s StringKeyHandler) KeyLoad(a []byte) (interface{}, error) {
+	return string(a), nil
 }
 
 func (s StringKeyHandler) Less(a, b interface{}) bool {
