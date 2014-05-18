@@ -34,7 +34,10 @@ func (uwc uniqueWordCount) Reduce(key interface{}, values []interface{}) (result
 
 func TestSomething(t *testing.T) {
 	u := uniqueWordCount{}
-	u.IntermediateStorage = &FileIntermediateStorage{PathPattern: "mr-intermediate-%s"}
+	u.IntermediateStorage = &FileIntermediateStorage{
+		PathPattern: "mr-intermediate-%s",
+		countPtr:    new(int32),
+	}
 
 	job := MapReduceJob{
 		MapReducePipeline: u,

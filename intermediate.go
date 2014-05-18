@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"strconv"
+	"sync/atomic"
 )
 
 type KeyValueHandler interface {
@@ -96,16 +97,17 @@ func (r *ReaderIterator) Next() (MappedData, bool, error) {
 
 type FileIntermediateStorage struct {
 	PathPattern string
-	count       int
+	countPtr    *int32
 }
 
 func (fis *FileIntermediateStorage) Store(items []MappedData, handler KeyValueHandler) (string, error) {
-	name := fmt.Sprintf(fis.PathPattern, fmt.Sprintf("%d", fis.count))
+	value := atomic.AddInt32(fis.countPtr, 1)
+
+	name := fmt.Sprintf(fis.PathPattern, fmt.Sprintf("%d", value))
 	f, err := os.Create(name)
 	if err != nil {
 		return "", err
 	}
-	fis.count++
 
 	if err := copyItemsToWriter(items, handler, f); err != nil {
 		os.Remove(name)
