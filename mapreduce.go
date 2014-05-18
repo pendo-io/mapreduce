@@ -108,7 +108,7 @@ func Run(job MapReduceJob) error {
 
 	reducerCount := job.Outputs.WriterCount()
 
-	ch := make(chan reduceResult)
+	ch := make(chan *http.Request)
 
 	for _, input := range inputs {
 		request, _ := http.NewRequest("POST",
@@ -123,18 +123,39 @@ func Run(job MapReduceJob) error {
 
 	jobs := len(inputs)
 	for jobs > 0 {
-		result := <-ch
-		if result.error != nil {
-			return result.error
+		r := <-ch
+		jobs--
+
+		status := r.FormValue("status")
+		switch status {
+		case "":
+			err = fmt.Errorf("missing status for request %s", r)
+		case "done":
+		case "error":
+			err = fmt.Errorf("failed job: %s", r.FormValue("error"))
+		default:
+			err = fmt.Errorf("unknown job status %s", status)
 		}
 
-		jobs--
-		storageNames = append(storageNames, result.storageNames)
+		if err != nil {
+			return err
+		}
+
+		var shardNames []string
+		if shardParam := r.FormValue("shards"); shardParam == "" {
+			err = fmt.Errorf("shard parameter missing")
+		} else if shardJson, err := url.QueryUnescape(shardParam); err != nil {
+			err = fmt.Errorf("cannot urldecode shards: %s", err.Error)
+		} else if err = json.Unmarshal([]byte(shardJson), &shardNames); err != nil {
+			err = fmt.Errorf("cannot unmarshal shard names: %s", err.Error())
+		} else {
+			storageNames = append(storageNames, shardNames)
+		}
 	}
 
 	close(ch)
 
-	results := make(chan error)
+	results := make(chan *http.Request)
 	writers, err := job.Outputs.Writers()
 	if err != nil {
 		return err
@@ -161,9 +182,16 @@ func Run(job MapReduceJob) error {
 	jobs = len(writers)
 	var finalErr error = nil
 	for jobs > 0 {
-		err := <-results
-		if err != nil && finalErr == nil {
-			finalErr = err
+		r := <-results
+		status := r.FormValue("status")
+		switch status {
+		case "":
+			finalErr = fmt.Errorf("missing status for request %s", r)
+		case "done":
+		case "error":
+			finalErr = fmt.Errorf("failed job: %s", r.FormValue("error"))
+		default:
+			finalErr = fmt.Errorf("unknown job status %s", status)
 		}
 
 		jobs--
@@ -172,36 +200,39 @@ func Run(job MapReduceJob) error {
 	return finalErr
 }
 
-func MapTask(mr MapReducePipeline, r *http.Request, ch chan reduceResult) {
-	readerName := r.FormValue("reader")
-	if readerName == "" {
-		//http.Error(w, "reader parameter is required", http.StatusBadRequest)
-		ch <- reduceResult{fmt.Errorf("reader parameter required"), nil}
-		return
+func MapTask(mr MapReducePipeline, r *http.Request, ch chan *http.Request) {
+	var finalErr error
+	var shardNames []string
+
+	if readerName := r.FormValue("reader"); readerName == "" {
+		finalErr = fmt.Errorf("reader parameter required")
+	} else if shardStr := r.FormValue("shards"); shardStr == "" {
+		finalErr = fmt.Errorf("shrads parameter required")
+	} else if shardCount, err := strconv.ParseInt(shardStr, 10, 32); err != nil {
+		finalErr = fmt.Errorf("error parsing shard count: %s", err.Error())
+	} else if reader, err := mr.ReaderFromName(readerName); err != nil {
+		finalErr = fmt.Errorf("error making reader: %s", err)
+	} else {
+		shardNames, finalErr = MapperFunc(mr, reader, int(shardCount))
 	}
 
-	var shardCount int64
-	var err error
-	if shardStr := r.FormValue("shards"); shardStr == "" {
-		//http.Error(w, "shards parameter is required", http.StatusBadRequest)
-		ch <- reduceResult{fmt.Errorf("shrads parameter required"), nil}
-		return
-	} else if shardCount, err = strconv.ParseInt(shardStr, 10, 32); err != nil {
-		//http.Error(w, "bad shards value", http.StatusBadRequest)
-		ch <- reduceResult{fmt.Errorf("bad shards"), nil}
-		return
+	var request *http.Request
+	if finalErr == nil {
+		shardSet, _ := json.Marshal(shardNames)
+		shardParam := url.QueryEscape(string(shardSet))
+		request, _ = http.NewRequest("POST",
+			fmt.Sprintf("http://foo.com/complete?status=done;shards=%s", shardParam),
+			nil)
+	} else {
+		request, _ = http.NewRequest("POST",
+			fmt.Sprintf("http://foo.com/complete?status=error;error=%s", url.QueryEscape(finalErr.Error())),
+			nil)
 	}
 
-	reader, err := mr.ReaderFromName(readerName)
-	if err != nil {
-		ch <- reduceResult{err, nil}
-		return
-	}
-
-	MapperFunc(mr, reader, int(shardCount), ch)
+	ch <- request
 }
 
-func MapperFunc(mr MapReducePipeline, reader SingleInputReader, shardCount int, ch chan reduceResult) {
+func MapperFunc(mr MapReducePipeline, reader SingleInputReader, shardCount int) ([]string, error) {
 	dataSets := make([]mappedDataList, shardCount)
 	for i := range dataSets {
 		dataSets[i] = mappedDataList{data: make([]MappedData, 0), compare: mr}
@@ -211,8 +242,7 @@ func MapperFunc(mr MapReducePipeline, reader SingleInputReader, shardCount int, 
 		itemList, err := mr.Map(item)
 
 		if err != nil {
-			ch <- reduceResult{err, nil}
-			return
+			return nil, err
 		}
 
 		for _, item := range itemList {
@@ -228,47 +258,45 @@ func MapperFunc(mr MapReducePipeline, reader SingleInputReader, shardCount int, 
 		sort.Sort(dataSets[i])
 		names[i], err = mr.Store(dataSets[i].data, mr)
 		if err != nil {
-			ch <- reduceResult{err, nil}
-			return
+			return nil, err
 		}
 	}
 
-	ch <- reduceResult{nil, names}
+	return names, nil
 }
 
-func ReduceTask(mr MapReducePipeline, r *http.Request, resultChannel chan error) {
-	writerName := r.FormValue("writer")
-	if writerName == "" {
-		//http.Error(w, "writer parameter is required", http.StatusBadRequest)
-		resultChannel <- fmt.Errorf("writer parameter required")
-		return
-	}
-
+func ReduceTask(mr MapReducePipeline, r *http.Request, resultChannel chan *http.Request) {
+	var err error
 	var shardNames []string
-	if shardParam := r.FormValue("shards"); shardParam == "" {
-		//http.Error(w, "shards parameter is required", http.StatusBadRequest)
-		resultChannel <- fmt.Errorf("shards parameter required")
-		return
+	var writer SingleOutputWriter
+
+	if writerName := r.FormValue("writer"); writerName == "" {
+		err = fmt.Errorf("writer parameter required")
+	} else if shardParam := r.FormValue("shards"); shardParam == "" {
+		err = fmt.Errorf("shards parameter required")
 	} else if shardJson, err := url.QueryUnescape(shardParam); err != nil {
-		//http.Error(w, "cannot urldecode shards", http.StatusBadRequest)
-		resultChannel <- fmt.Errorf("cannot urldecode shards")
-		return
-	} else if err := json.Unmarshal([]byte(shardJson), &shardNames); err != nil {
-		//http.Error(w, "cannot unmarshal shard names", http.StatusBadRequest)
-		resultChannel <- fmt.Errorf("cannot unmarshal shard names nil}")
-		return
+		err = fmt.Errorf("cannot urldecode shards: %s", err.Error)
+	} else if err = json.Unmarshal([]byte(shardJson), &shardNames); err != nil {
+		err = fmt.Errorf("cannot unmarshal shard names: %s", err.Error())
+	} else if writer, err = mr.WriterFromName(writerName); err != nil {
+		err = fmt.Errorf("error getting writer: %s", err.Error())
+	} else {
+		err = ReduceFunc(mr, writer, shardNames)
 	}
 
-	writer, err := mr.WriterFromName(writerName)
-	if err != nil {
-		resultChannel <- err
-		return
+	var request *http.Request
+	if err == nil {
+		request, _ = http.NewRequest("POST", "http://foo.com/complete?status=done", nil)
+	} else {
+		request, _ = http.NewRequest("POST",
+			fmt.Sprintf("http://foo.com/complete?status=error;error=%s", url.QueryEscape(err.Error())),
+			nil)
 	}
 
-	ReduceFunc(mr, writer, shardNames, resultChannel)
+	resultChannel <- request
 }
 
-func ReduceFunc(mr MapReducePipeline, writer SingleOutputWriter, shardNames []string, resultChannel chan error) {
+func ReduceFunc(mr MapReducePipeline, writer SingleOutputWriter, shardNames []string) error {
 	inputCount := len(shardNames)
 
 	items := shardMappedDataList{
@@ -280,14 +308,12 @@ func ReduceFunc(mr MapReducePipeline, writer SingleOutputWriter, shardNames []st
 	for _, shardName := range shardNames {
 		iterator, err := mr.Iterator(shardName, mr)
 		if err != nil {
-			resultChannel <- err
-			return
+			return err
 		}
 
 		firstItem, exists, err := iterator.Next()
 		if err != nil {
-			resultChannel <- err
-			return
+			return err
 		} else if !exists {
 			continue
 		}
@@ -297,16 +323,14 @@ func ReduceFunc(mr MapReducePipeline, writer SingleOutputWriter, shardNames []st
 	}
 
 	if len(items.data) == 0 {
-		resultChannel <- nil
-		return
+		return nil
 	}
 
 	values := make([]interface{}, 1)
 	var key interface{}
 
 	if first, err := items.next(); err != nil {
-		resultChannel <- err
-		return
+		return err
 	} else {
 		key = first.Key
 		values[0] = first.Value
@@ -315,8 +339,7 @@ func ReduceFunc(mr MapReducePipeline, writer SingleOutputWriter, shardNames []st
 	for len(items.data) > 0 {
 		item, err := items.next()
 		if err != nil {
-			resultChannel <- err
-			return
+			return err
 		}
 
 		if mr.Equal(key, item.Key) {
@@ -325,11 +348,9 @@ func ReduceFunc(mr MapReducePipeline, writer SingleOutputWriter, shardNames []st
 		}
 
 		if result, err := mr.Reduce(key, values); err != nil {
-			resultChannel <- err
-			return
+			return err
 		} else if err := writer.Write(result); err != nil {
-			resultChannel <- err
-			return
+			return err
 		}
 
 		key = item.Key
@@ -338,14 +359,12 @@ func ReduceFunc(mr MapReducePipeline, writer SingleOutputWriter, shardNames []st
 	}
 
 	if result, err := mr.Reduce(key, values); err != nil {
-		resultChannel <- err
-		return
+		return err
 	} else if err := writer.Write(result); err != nil {
-		resultChannel <- err
-		return
+		return err
 	}
 
 	writer.Close()
 
-	resultChannel <- nil
+	return nil
 }
