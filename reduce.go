@@ -51,7 +51,7 @@ func ReduceCompleteTask(c appengine.Context, pipeline MapReducePipeline, taskKey
 
 }
 
-func ReduceTask(c appengine.Context, mr MapReducePipeline, taskKey *datastore.Key, r *http.Request) {
+func ReduceTask(c appengine.Context, baseUrl string, mr MapReducePipeline, taskKey *datastore.Key, r *http.Request) {
 	var err error
 	var shardNames []string
 	var writer SingleOutputWriter
@@ -67,18 +67,18 @@ func ReduceTask(c appengine.Context, mr MapReducePipeline, taskKey *datastore.Ke
 	} else if err = json.Unmarshal([]byte(shardJson), &shardNames); err != nil {
 		fmt.Printf("json is ", shardJson)
 		err = fmt.Errorf("cannot unmarshal shard names: %s", err.Error())
-	} else if writer, err = mr.WriterFromName(writerName); err != nil {
+	} else if writer, err = mr.WriterFromName(c, writerName); err != nil {
 		err = fmt.Errorf("error getting writer: %s", err.Error())
-	} else {
-		err = ReduceFunc(c, mr, writer, shardNames)
+	} else if err = ReduceFunc(c, mr, writer, shardNames); err == nil {
+		writer.Close(c)
 	}
 
 	if err == nil {
 		updateTask(c, taskKey, TaskStatusDone, "", writer.ToName())
-		mr.PostTask(c, fmt.Sprintf("/reducecomplete?taskKey=%s;status=done", taskKey.Encode()))
+		mr.PostTask(c, fmt.Sprintf("%s/reducecomplete?taskKey=%s;status=done", baseUrl, taskKey.Encode()))
 	} else {
 		updateTask(c, taskKey, TaskStatusFailed, err.Error(), nil)
-		mr.PostTask(c, fmt.Sprintf("/reducecomplete?taskKey=%s;status=error;error=%s", taskKey.Encode(), url.QueryEscape(err.Error())))
+		mr.PostTask(c, fmt.Sprintf("%s/reducecomplete?taskKey=%s;status=error;error=%s", baseUrl, taskKey.Encode(), url.QueryEscape(err.Error())))
 	}
 }
 
@@ -150,7 +150,7 @@ func ReduceFunc(c appengine.Context, mr MapReducePipeline, writer SingleOutputWr
 		return err
 	}
 
-	writer.Close()
+	writer.Close(c)
 
 	for _, shardName := range shardNames {
 		if err := mr.RemoveIntermediate(c, shardName); err != nil {

@@ -103,17 +103,17 @@ type reduceResult struct {
 	storageNames []string
 }
 
-func Run(c appengine.Context, job MapReduceJob) error {
+func Run(c appengine.Context, job MapReduceJob) (int64, error) {
 	inputs, err := job.Inputs.Split()
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	reducerCount := job.Outputs.WriterCount()
 
-	writers, err := job.Outputs.Writers()
+	writers, err := job.Outputs.Writers(c)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	writerNames := make([]string, len(writers))
@@ -123,14 +123,14 @@ func Run(c appengine.Context, job MapReduceJob) error {
 
 	jobKey, err := createJob(c, job.UrlPrefix, writerNames, job.OnCompleteUrl)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	taskKeys := make([]*datastore.Key, len(inputs))
 	tasks := make([]JobTask, len(inputs))
 	firstId, _, err := datastore.AllocateIDs(c, TaskEntity, jobKey, len(inputs))
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	for i, input := range inputs {
@@ -150,16 +150,16 @@ func Run(c appengine.Context, job MapReduceJob) error {
 	}
 
 	if err := createTasks(c, jobKey, taskKeys, tasks, StageMapping); err != nil {
-		return err
+		return 0, err
 	}
 
 	for i := range tasks {
 		if err := job.PostTask(c, tasks[i].Url); err != nil {
-			return err
+			return 0, err
 		}
 	}
 
-	return nil
+	return jobKey.IntID(), nil
 }
 
 type handler struct {
@@ -189,11 +189,11 @@ func (h handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	c := h.getContext(r)
 
 	if strings.HasSuffix(r.URL.Path, "/reduce") {
-		ReduceTask(c, h.pipeline, taskKey, r)
+		ReduceTask(c, h.baseUrl, h.pipeline, taskKey, r)
 	} else if strings.HasSuffix(r.URL.Path, "/reducecomplete") {
 		ReduceCompleteTask(c, h.pipeline, taskKey, r)
 	} else if strings.HasSuffix(r.URL.Path, "/map") {
-		MapTask(c, h.pipeline, taskKey, r)
+		MapTask(c, h.baseUrl, h.pipeline, taskKey, r)
 	} else if strings.HasSuffix(r.URL.Path, "/mapcomplete") {
 		MapCompleteTask(c, h.pipeline, taskKey, r)
 	} else {

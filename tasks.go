@@ -32,7 +32,7 @@ const (
 type JobTask struct {
 	Status    TaskStatus
 	RunCount  int
-	Url       string
+	Url       string `datastore:",noindex"`
 	Info      string
 	UpdatedAt time.Time
 	Type      TaskType
@@ -190,6 +190,20 @@ func updateTask(c appengine.Context, taskKey *datastore.Key, status TaskStatus, 
 
 	_, err := datastore.Put(c, taskKey, &task)
 	return err
+}
+
+func GetJobResults(c appengine.Context, jobKey *datastore.Key) ([]interface{}, error) {
+	tasks, err := gatherTasks(c, jobKey, TaskTypeReduce)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]interface{}, len(tasks))
+	for i, task := range tasks {
+		json.Unmarshal([]byte(task.Result), &result[i])
+	}
+
+	return result, nil
 }
 
 func gatherTasks(c appengine.Context, jobKey *datastore.Key, taskType TaskType) ([]JobTask, error) {

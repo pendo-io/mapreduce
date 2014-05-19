@@ -10,12 +10,12 @@ import (
 	"testing"
 )
 
-type uniqueWordCount struct {
+type testUniqueWordCount struct {
 	FileLineInputReader
 	FileLineOutputWriter
 	StringKeyHandler
 	IntValueHandler
-	IntermediateStorage
+	BlobIntermediateStorage
 	SimpleTasks
 }
 
@@ -41,7 +41,7 @@ func (st SimpleTasks) PostTask(c appengine.Context, url string) error {
 	return nil
 }
 
-func (uwc uniqueWordCount) Map(item interface{}) ([]MappedData, error) {
+func (uwc testUniqueWordCount) Map(item interface{}) ([]MappedData, error) {
 	line := item.(string)
 	words := strings.Split(line, " ")
 	result := make([]MappedData, 0, len(words))
@@ -54,13 +54,12 @@ func (uwc uniqueWordCount) Map(item interface{}) ([]MappedData, error) {
 	return result, nil
 }
 
-func (uwc uniqueWordCount) Reduce(key interface{}, values []interface{}) (result interface{}, err error) {
+func (uwc testUniqueWordCount) Reduce(key interface{}, values []interface{}) (result interface{}, err error) {
 	return fmt.Sprintf("%s: %d", key, len(values)), nil
 }
 
 func TestSomething(t *testing.T) {
-	u := uniqueWordCount{}
-	u.IntermediateStorage = &BlobIntermediateStorage{}
+	u := testUniqueWordCount{}
 
 	context, _ := aetest.NewContext(nil)
 	defer context.Close()

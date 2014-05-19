@@ -99,7 +99,7 @@ func (r *ReaderIterator) Next() (MappedData, bool, error) {
 type BlobIntermediateStorage struct {
 }
 
-func (fis *BlobIntermediateStorage) Store(c appengine.Context, items []MappedData, handler KeyValueHandler) (string, error) {
+func (fis BlobIntermediateStorage) Store(c appengine.Context, items []MappedData, handler KeyValueHandler) (string, error) {
 
 	if writer, err := blobstore.Create(c, "text/plain"); err != nil {
 		return "", err
@@ -114,13 +114,13 @@ func (fis *BlobIntermediateStorage) Store(c appengine.Context, items []MappedDat
 	}
 }
 
-func (fis *BlobIntermediateStorage) Iterator(c appengine.Context, name string, handler KeyValueHandler) (IntermediateStorageIterator, error) {
+func (fis BlobIntermediateStorage) Iterator(c appengine.Context, name string, handler KeyValueHandler) (IntermediateStorageIterator, error) {
 	f := blobstore.NewReader(c, appengine.BlobKey(name))
 
 	return &ReaderIterator{bufio.NewReader(f), handler}, nil
 }
 
-func (fis *BlobIntermediateStorage) RemoveIntermediate(c appengine.Context, name string) error {
+func (fis BlobIntermediateStorage) RemoveIntermediate(c appengine.Context, name string) error {
 	return blobstore.Delete(c, appengine.BlobKey(name))
 }
 

@@ -118,7 +118,7 @@ func MapCompleteTask(c appengine.Context, pipeline MapReducePipeline, taskKey *d
 	}
 }
 
-func MapTask(c appengine.Context, mr MapReducePipeline, taskKey *datastore.Key, r *http.Request) {
+func MapTask(c appengine.Context, baseUrl string, mr MapReducePipeline, taskKey *datastore.Key, r *http.Request) {
 	var finalErr error
 	var shardNames map[string]int
 
@@ -138,10 +138,10 @@ func MapTask(c appengine.Context, mr MapReducePipeline, taskKey *datastore.Key, 
 		if err := updateTask(c, taskKey, TaskStatusDone, "", shardNames); err != nil {
 			c.Criticalf("Could not update task: %s", err)
 		}
-		mr.PostTask(c, fmt.Sprintf("/mapcomplete?taskKey=%s;status=done", taskKey.Encode()))
+		mr.PostTask(c, fmt.Sprintf("%s/mapcomplete?taskKey=%s;status=done", baseUrl, taskKey.Encode()))
 	} else {
 		updateTask(c, taskKey, TaskStatusFailed, finalErr.Error(), nil)
-		mr.PostTask(c, fmt.Sprintf("/mapcomplete?taskKey=%s;status=error;error=%s", taskKey.Encode(), url.QueryEscape(finalErr.Error())))
+		mr.PostTask(c, fmt.Sprintf("%s/mapcomplete?taskKey=%s;status=error;error=%s", baseUrl, taskKey.Encode(), url.QueryEscape(finalErr.Error())))
 	}
 }
 
