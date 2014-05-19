@@ -25,12 +25,18 @@ func MapCompleteTask(c appengine.Context, pipeline MapReducePipeline, taskKey *d
 		finalErr = fmt.Errorf("unknown job status %s", status)
 	}
 
+	jobKey := taskKey.Parent()
+
 	if finalErr != nil {
 		c.Errorf("bad status from task: %s", finalErr.Error())
+		prevJob, _ := updateJobStage(c, jobKey, StageFailed)
+		if prevJob.Stage == StageFailed {
+			return
+		}
+
+		pipeline.PostTask(fmt.Sprintf("/reducecomplete?taskKey=%s;status=error;error=%s", taskKey.Encode(), url.QueryEscape(finalErr.Error())))
 		return
 	}
-
-	jobKey := taskKey.Parent()
 
 	done, job, err := taskComplete(c, jobKey, StageMapping, StageReducing)
 	if err != nil {
@@ -42,7 +48,7 @@ func MapCompleteTask(c appengine.Context, pipeline MapReducePipeline, taskKey *d
 		return
 	}
 
-	mapTasks, err := gatherTasks(c, jobKey)
+	mapTasks, err := gatherTasks(c, jobKey, TaskTypeMap)
 	if err != nil {
 		c.Errorf("error loading tasks after map complete: %s", err.Error())
 		return
@@ -92,6 +98,7 @@ func MapCompleteTask(c appengine.Context, pipeline MapReducePipeline, taskKey *d
 				Status:   TaskStatusPending,
 				RunCount: 0,
 				Url:      url,
+				Type:     TaskTypeReduce,
 			})
 		}
 	}

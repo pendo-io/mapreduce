@@ -22,12 +22,12 @@ type uniqueWordCount struct {
 
 type SimpleTasks struct {
 	handler http.Handler
-	done    chan bool
+	done    chan string
 }
 
 func (st SimpleTasks) PostTask(url string) error {
-	if url == "/done" {
-		st.done <- true
+	if strings.Index(url, "/done") >= 0 {
+		st.done <- url
 		return nil
 	}
 
@@ -72,12 +72,12 @@ func TestSomething(t *testing.T) {
 
 	u.SimpleTasks = SimpleTasks{
 		handler: MapReduceHandler("/mr/test", &u, contextFn),
-		done:    make(chan bool),
+		done:    make(chan string),
 	}
 
 	job := MapReduceJob{
 		MapReducePipeline: u,
-		Inputs:            FileLineInputReader{[]string{"test", "test2"}},
+		Inputs:            FileLineInputReader{[]string{"p1", "p2", "p3", "p4", "p5"}},
 		Outputs:           FileLineOutputWriter{[]string{"test1.out", "test2.out"}},
 		UrlPrefix:         "/mr/test",
 		OnCompleteUrl:     "/done",
@@ -88,5 +88,5 @@ func TestSomething(t *testing.T) {
 		log.Fatal(err)
 	}
 
-	<-u.SimpleTasks.done
+	fmt.Printf("got: %s\n", <-u.SimpleTasks.done)
 }

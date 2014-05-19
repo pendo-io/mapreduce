@@ -39,7 +39,8 @@ func ReduceCompleteTask(c appengine.Context, pipeline MapReducePipeline, taskKey
 		return
 	}
 
-	pipeline.PostTask(job.OnCompleteUrl)
+	successUrl := fmt.Sprintf("%s?state=%s;id=%d", job.OnCompleteUrl, TaskStatusDone, jobKey.IntID())
+	pipeline.PostTask(successUrl)
 
 }
 

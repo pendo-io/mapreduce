@@ -4,6 +4,7 @@ import (
 	"appengine"
 	"appengine/datastore"
 	"encoding/json"
+	"fmt"
 	"time"
 )
 
@@ -23,6 +24,7 @@ const (
 	StageMapping   = JobStage("map")
 	StageReducing  = JobStage("reduce")
 	StageDone      = JobStage("done")
+	StageFailed    = JobStage("failed")
 )
 
 type JobTask struct {
@@ -31,6 +33,7 @@ type JobTask struct {
 	Url       string
 	Info      string
 	UpdatedAt time.Time
+	Type      TaskType
 	Result    string
 }
 
@@ -46,6 +49,13 @@ type JobInfo struct {
 type TaskInterface interface {
 	PostTask(fullUrl string) error
 }
+
+type TaskType string
+
+const (
+	TaskTypeMap    = "map"
+	TaskTypeReduce = "reduce"
+)
 
 const JobEntity = "MapReduceJob"
 const TaskEntity = "MapReduceTask"
@@ -88,8 +98,43 @@ func createTasks(c appengine.Context, jobKey *datastore.Key, taskKeys []*datasto
 	return err
 }
 
+func runInTransaction(c appengine.Context, tryCount int, f func(c appengine.Context) error) error {
+	var finalErr error
+	for i := 0; i < tryCount; i++ {
+		finalErr = datastore.RunInTransaction(c, f, nil)
+
+		if finalErr == nil {
+			return nil
+		} else if finalErr != nil && finalErr != datastore.ErrConcurrentTransaction {
+			break
+		}
+
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	c.Criticalf("could not write status for job %d after multiple tries: %s", finalErr)
+	return fmt.Errorf("failed to write new job status after multiple attempts: %s", finalErr)
+}
+
+func updateJobStage(c appengine.Context, jobKey *datastore.Key, status JobStage) (prev JobInfo, finalErr error) {
+	finalErr = runInTransaction(c, 5, func(c appengine.Context) error {
+		prev = JobInfo{}
+		if err := datastore.Get(c, jobKey, &prev); err != nil {
+			return err
+		}
+
+		job := prev
+		job.Stage = status
+
+		_, err := datastore.Put(c, jobKey, &job)
+		return err
+	})
+
+	return
+}
+
 func taskComplete(c appengine.Context, jobKey *datastore.Key, expectedStage, nextStage JobStage) (stageChanged bool, job JobInfo, finalErr error) {
-	finalErr = datastore.RunInTransaction(c, func(c appengine.Context) error {
+	finalErr = runInTransaction(c, 5, func(c appengine.Context) error {
 		job = JobInfo{}
 		if err := datastore.Get(c, jobKey, &job); err != nil {
 			return err
@@ -116,7 +161,7 @@ func taskComplete(c appengine.Context, jobKey *datastore.Key, expectedStage, nex
 		_, err := datastore.Put(c, jobKey, &job)
 		stageChanged = err == nil
 		return err
-	}, nil)
+	})
 
 	return
 }
@@ -145,7 +190,8 @@ func updateTask(c appengine.Context, taskKey *datastore.Key, status TaskStatus, 
 	return err
 }
 
-func gatherTasks(c appengine.Context, jobKey *datastore.Key) ([]JobTask, error) {
+func gatherTasks(c appengine.Context, jobKey *datastore.Key, taskType TaskType) ([]JobTask, error) {
+	// we don't use a filter here because it seems like a waste of a compound index
 	q := datastore.NewQuery(TaskEntity).Ancestor(jobKey)
 	var tasks []JobTask
 	_, err := q.GetAll(c, &tasks)
@@ -153,5 +199,12 @@ func gatherTasks(c appengine.Context, jobKey *datastore.Key) ([]JobTask, error) 
 		return nil, err
 	}
 
-	return tasks, nil
+	finalTasks := make([]JobTask, 0)
+	for _, task := range tasks {
+		if task.Type == taskType {
+			finalTasks = append(finalTasks, task)
+		}
+	}
+
+	return finalTasks, nil
 }

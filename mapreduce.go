@@ -145,6 +145,7 @@ func Run(c appengine.Context, job MapReduceJob) error {
 			Status:   TaskStatusPending,
 			RunCount: 0,
 			Url:      url,
+			Type:     TaskTypeMap,
 		}
 	}
 
