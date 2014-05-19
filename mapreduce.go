@@ -1,12 +1,15 @@
 package kyrie
 
 import (
+	"appengine"
+	"appengine/datastore"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
 	"sort"
 	"strconv"
+	"strings"
 )
 
 type MappedData struct {
@@ -35,12 +38,15 @@ type MapReducePipeline interface {
 	KeyHandler
 	ValueHandler
 	IntermediateStorage
+	TaskInterface
 }
 
 type MapReduceJob struct {
 	MapReducePipeline
-	Inputs  InputReader
-	Outputs OutputWriter
+	Inputs        InputReader
+	Outputs       OutputWriter
+	UrlPrefix     string
+	OnCompleteUrl string
 }
 
 type mappedDataList struct {
@@ -100,7 +106,7 @@ type reduceResult struct {
 	storageNames []string
 }
 
-func Run(job MapReduceJob) error {
+func Run(c appengine.Context, job MapReduceJob) error {
 	inputs, err := job.Inputs.Split()
 	if err != nil {
 		return err
@@ -109,6 +115,11 @@ func Run(job MapReduceJob) error {
 	reducerCount := job.Outputs.WriterCount()
 
 	ch := make(chan *http.Request)
+
+	jobKey, err := createJob(c, job.UrlPrefix, job.OnCompleteUrl)
+	if err != nil {
+		return err
+	}
 
 	for _, input := range inputs {
 		request, _ := http.NewRequest("POST",
@@ -155,8 +166,14 @@ func Run(job MapReduceJob) error {
 
 	close(ch)
 
-	results := make(chan *http.Request)
 	writers, err := job.Outputs.Writers()
+	if err != nil {
+		return err
+	}
+
+	tasks := make([]JobTask, 0, len(writers))
+	taskKeys := make([]*datastore.Key, 0, len(writers))
+	firstId, _, err := datastore.AllocateIDs(c, TaskEntity, jobKey, len(writers))
 	if err != nil {
 		return err
 	}
@@ -171,33 +188,68 @@ func Run(job MapReduceJob) error {
 		if len(shards) > 0 {
 			shardSet, _ := json.Marshal(shards)
 			shardParam := url.QueryEscape(string(shardSet))
-			request, _ := http.NewRequest("POST",
-				fmt.Sprintf("http://foo.com?writer=%s;shards=%s",
-					writer.ToName(), shardParam), nil)
 
-			go ReduceTask(job, request, results)
+			taskKey := datastore.NewKey(c, TaskEntity, "", firstId, jobKey)
+			taskKeys = append(taskKeys, taskKey)
+			url := fmt.Sprintf("%s/reduce?taskKey=%s;writer=%s;shards=%s",
+				job.UrlPrefix, taskKey.Encode(), writer.ToName(),
+				shardParam)
+
+			firstId++
+
+			tasks = append(tasks, JobTask{
+				Status:   TaskStatusPending,
+				RunCount: 0,
+				Url:      url,
+			})
 		}
 	}
 
-	jobs = len(writers)
+	if err := createTasks(c, jobKey, taskKeys, tasks, StageReducing); err != nil {
+		return err
+	}
+
+	for i := range tasks {
+		if err := job.PostTask(tasks[i].Url); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func ReduceCompleteTask(c appengine.Context, pipeline MapReducePipeline, taskKey *datastore.Key, r *http.Request) {
 	var finalErr error = nil
-	for jobs > 0 {
-		r := <-results
-		status := r.FormValue("status")
-		switch status {
-		case "":
-			finalErr = fmt.Errorf("missing status for request %s", r)
-		case "done":
-		case "error":
-			finalErr = fmt.Errorf("failed job: %s", r.FormValue("error"))
-		default:
-			finalErr = fmt.Errorf("unknown job status %s", status)
-		}
 
-		jobs--
+	status := r.FormValue("status")
+	switch status {
+	case "":
+		finalErr = fmt.Errorf("missing status for task %s", r)
+	case "done":
+	case "error":
+		finalErr = fmt.Errorf("failed task: %s", r.FormValue("error"))
+	default:
+		finalErr = fmt.Errorf("unknown task status %s", status)
 	}
 
-	return finalErr
+	if finalErr != nil {
+		c.Errorf("bad status from task: %s", finalErr.Error())
+		return
+	}
+
+	jobKey := taskKey.Parent()
+	done, job, err := taskComplete(c, jobKey, StageReducing, StageDone)
+	if err != nil {
+		c.Errorf("error getting task complete status: %s", err.Error())
+		return
+	}
+
+	if !done {
+		return
+	}
+
+	pipeline.PostTask(job.OnCompleteUrl)
+
 }
 
 func MapTask(mr MapReducePipeline, r *http.Request, ch chan *http.Request) {
@@ -265,10 +317,12 @@ func MapperFunc(mr MapReducePipeline, reader SingleInputReader, shardCount int) 
 	return names, nil
 }
 
-func ReduceTask(mr MapReducePipeline, r *http.Request, resultChannel chan *http.Request) {
+func ReduceTask(c appengine.Context, mr MapReducePipeline, taskKey *datastore.Key, r *http.Request) {
 	var err error
 	var shardNames []string
 	var writer SingleOutputWriter
+
+	updateTask(c, taskKey, TaskStatusRunning, "")
 
 	if writerName := r.FormValue("writer"); writerName == "" {
 		err = fmt.Errorf("writer parameter required")
@@ -284,16 +338,13 @@ func ReduceTask(mr MapReducePipeline, r *http.Request, resultChannel chan *http.
 		err = ReduceFunc(mr, writer, shardNames)
 	}
 
-	var request *http.Request
 	if err == nil {
-		request, _ = http.NewRequest("POST", "http://foo.com/complete?status=done", nil)
+		updateTask(c, taskKey, TaskStatusDone, "")
+		mr.PostTask(fmt.Sprintf("/reducecomplete?taskKey=%s;status=done", taskKey.Encode()))
 	} else {
-		request, _ = http.NewRequest("POST",
-			fmt.Sprintf("http://foo.com/complete?status=error;error=%s", url.QueryEscape(err.Error())),
-			nil)
+		updateTask(c, taskKey, TaskStatusFailed, err.Error())
+		mr.PostTask(fmt.Sprintf("/reducecomplete?taskKey=%s;status=error;error=%s", taskKey.Encode(), url.QueryEscape(err.Error())))
 	}
-
-	resultChannel <- request
 }
 
 func ReduceFunc(mr MapReducePipeline, writer SingleOutputWriter, shardNames []string) error {
@@ -367,4 +418,42 @@ func ReduceFunc(mr MapReducePipeline, writer SingleOutputWriter, shardNames []st
 	writer.Close()
 
 	return nil
+}
+
+type handler struct {
+	pipeline   MapReducePipeline
+	baseUrl    string
+	getContext func(r *http.Request) appengine.Context
+}
+
+func MapReduceHandler(baseUrl string, pipeline MapReducePipeline,
+	getContext func(r *http.Request) appengine.Context) http.Handler {
+	return handler{pipeline, baseUrl, getContext}
+}
+
+func (h handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	var taskKey *datastore.Key
+	var err error
+
+	fmt.Printf("HERE url %s\n", r.URL.Path)
+
+	if taskKeyStr := r.FormValue("taskKey"); taskKeyStr == "" {
+		http.Error(w, "taskKey parameter required", http.StatusBadRequest)
+		return
+	} else if taskKey, err = datastore.DecodeKey(taskKeyStr); err != nil {
+		http.Error(w, fmt.Sprintf("invalid taskKey: %s", err.Error()),
+			http.StatusBadRequest)
+		return
+	}
+
+	c := h.getContext(r)
+
+	if strings.HasSuffix(r.URL.Path, "/reduce") {
+		ReduceTask(c, h.pipeline, taskKey, r)
+	} else if strings.HasSuffix(r.URL.Path, "/reducecomplete") {
+		ReduceCompleteTask(c, h.pipeline, taskKey, r)
+	} else {
+		http.Error(w, "unknown request uel", http.StatusNotFound)
+		return
+	}
 }

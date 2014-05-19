@@ -1,8 +1,12 @@
 package kyrie
 
 import (
+	"appengine"
+	"appengine/aetest"
 	"fmt"
 	"log"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -13,6 +17,28 @@ type uniqueWordCount struct {
 	StringKeyHandler
 	IntValueHandler
 	IntermediateStorage
+	SimpleTasks
+}
+
+type SimpleTasks struct {
+	handler http.Handler
+	done    chan bool
+}
+
+func (st SimpleTasks) PostTask(url string) error {
+	fmt.Printf("posting task %s\n", url)
+	if url == "/done" {
+		st.done <- true
+		return nil
+	}
+
+	req, _ := http.NewRequest("POST", url, nil)
+	go func() {
+		w := httptest.NewRecorder()
+		st.handler.ServeHTTP(w, req)
+		fmt.Printf("got %s\n", w)
+	}()
+	return nil
 }
 
 func (uwc uniqueWordCount) Map(item interface{}) ([]MappedData, error) {
@@ -39,14 +65,30 @@ func TestSomething(t *testing.T) {
 		countPtr:    new(int32),
 	}
 
+	context, _ := aetest.NewContext(nil)
+	defer context.Close()
+
+	contextFn := func(r *http.Request) appengine.Context {
+		return context
+	}
+
+	u.SimpleTasks = SimpleTasks{
+		handler: MapReduceHandler("/mr/test", &u, contextFn),
+		done:    make(chan bool),
+	}
+
 	job := MapReduceJob{
 		MapReducePipeline: u,
 		Inputs:            FileLineInputReader{[]string{"test", "test2"}},
 		Outputs:           FileLineOutputWriter{[]string{"test1.out", "test2.out"}},
+		UrlPrefix:         "/mr/test",
+		OnCompleteUrl:     "/done",
 	}
 
-	err := Run(job)
+	err := Run(context, job)
 	if err != nil {
 		log.Fatal(err)
 	}
+
+	<-u.SimpleTasks.done
 }
