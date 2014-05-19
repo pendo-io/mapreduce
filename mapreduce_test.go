@@ -26,7 +26,6 @@ type SimpleTasks struct {
 }
 
 func (st SimpleTasks) PostTask(url string) error {
-	fmt.Printf("posting task %s\n", url)
 	if url == "/done" {
 		st.done <- true
 		return nil
@@ -36,7 +35,9 @@ func (st SimpleTasks) PostTask(url string) error {
 	go func() {
 		w := httptest.NewRecorder()
 		st.handler.ServeHTTP(w, req)
-		fmt.Printf("got %s\n", w)
+		if w.Code != 200 {
+			fmt.Printf("Got bad response code %s for url %s\n", w.Code, url)
+		}
 	}()
 	return nil
 }
