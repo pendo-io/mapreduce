@@ -4,7 +4,6 @@ import (
 	"appengine"
 	"appengine/aetest"
 	"fmt"
-	"log"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -77,7 +76,7 @@ func TestSomething(t *testing.T) {
 
 	job := MapReduceJob{
 		MapReducePipeline: u,
-		Inputs:            FileLineInputReader{[]string{"p1", "p2", "p3", "p4", "p5"}},
+		Inputs:            FileLineInputReader{[]string{"testdata/pandp-1", "testdata/pandp-2", "testdata/pandp-3", "testdata/pandp-4", "testdata/pandp-5"}},
 		Outputs:           FileLineOutputWriter{[]string{"test1.out", "test2.out"}},
 		UrlPrefix:         "/mr/test",
 		OnCompleteUrl:     "/done",
@@ -85,8 +84,13 @@ func TestSomething(t *testing.T) {
 
 	err := Run(context, job)
 	if err != nil {
-		log.Fatal(err)
+		t.Logf("mapreduce failed to run: %s", err)
+		t.Fail()
+	} else {
+		resultUrl := <-u.SimpleTasks.done
+		t.Logf("got result: %s\n", resultUrl)
+		if strings.Index(resultUrl, "status=done") >= 0 {
+			t.Fail()
+		}
 	}
-
-	fmt.Printf("got: %s\n", <-u.SimpleTasks.done)
 }

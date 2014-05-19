@@ -136,7 +136,7 @@ func MapTask(c appengine.Context, mr MapReducePipeline, taskKey *datastore.Key, 
 
 	if finalErr == nil {
 		if err := updateTask(c, taskKey, TaskStatusDone, "", shardNames); err != nil {
-			c.Criticalf("Could not update tast: %s", err)
+			c.Criticalf("Could not update task: %s", err)
 		}
 		mr.PostTask(c, fmt.Sprintf("/mapcomplete?taskKey=%s;status=done", taskKey.Encode()))
 	} else {
