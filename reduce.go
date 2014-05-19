@@ -62,7 +62,7 @@ func ReduceTask(c appengine.Context, mr MapReducePipeline, taskKey *datastore.Ke
 	} else if writer, err = mr.WriterFromName(writerName); err != nil {
 		err = fmt.Errorf("error getting writer: %s", err.Error())
 	} else {
-		err = ReduceFunc(mr, writer, shardNames)
+		err = ReduceFunc(c, mr, writer, shardNames)
 	}
 
 	if err == nil {
@@ -74,7 +74,7 @@ func ReduceTask(c appengine.Context, mr MapReducePipeline, taskKey *datastore.Ke
 	}
 }
 
-func ReduceFunc(mr MapReducePipeline, writer SingleOutputWriter, shardNames []string) error {
+func ReduceFunc(c appengine.Context, mr MapReducePipeline, writer SingleOutputWriter, shardNames []string) error {
 	inputCount := len(shardNames)
 
 	items := shardMappedDataList{
@@ -84,7 +84,7 @@ func ReduceFunc(mr MapReducePipeline, writer SingleOutputWriter, shardNames []st
 	}
 
 	for _, shardName := range shardNames {
-		iterator, err := mr.Iterator(shardName, mr)
+		iterator, err := mr.Iterator(c, shardName, mr)
 		if err != nil {
 			return err
 		}
@@ -143,6 +143,12 @@ func ReduceFunc(mr MapReducePipeline, writer SingleOutputWriter, shardNames []st
 	}
 
 	writer.Close()
+
+	for _, shardName := range shardNames {
+		if err := mr.RemoveIntermediate(c, shardName); err != nil {
+			c.Errorf("failed to remove intermediate file: %s", err.Error())
+		}
+	}
 
 	return nil
 }

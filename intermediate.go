@@ -1,13 +1,13 @@
 package kyrie
 
 import (
+	"appengine"
+	"appengine/blobstore"
 	"bufio"
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
 	"strconv"
-	"sync/atomic"
 )
 
 type KeyValueHandler interface {
@@ -20,8 +20,9 @@ type IntermediateStorageIterator interface {
 }
 
 type IntermediateStorage interface {
-	Store(items []MappedData, handler KeyValueHandler) (string, error)
-	Iterator(name string, handler KeyValueHandler) (IntermediateStorageIterator, error)
+	Store(c appengine.Context, items []MappedData, handler KeyValueHandler) (string, error)
+	Iterator(c appengine.Context, name string, handler KeyValueHandler) (IntermediateStorageIterator, error)
+	RemoveIntermediate(c appengine.Context, name string) error
 }
 
 type ArrayIterator struct {
@@ -95,35 +96,32 @@ func (r *ReaderIterator) Next() (MappedData, bool, error) {
 	return m, true, nil
 }
 
-type FileIntermediateStorage struct {
-	PathPattern string
-	countPtr    *int32
+type BlobIntermediateStorage struct {
 }
 
-func (fis *FileIntermediateStorage) Store(items []MappedData, handler KeyValueHandler) (string, error) {
-	value := atomic.AddInt32(fis.countPtr, 1)
+func (fis *BlobIntermediateStorage) Store(c appengine.Context, items []MappedData, handler KeyValueHandler) (string, error) {
 
-	name := fmt.Sprintf(fis.PathPattern, fmt.Sprintf("%d", value))
-	f, err := os.Create(name)
-	if err != nil {
+	if writer, err := blobstore.Create(c, "text/plain"); err != nil {
 		return "", err
-	}
-
-	if err := copyItemsToWriter(items, handler, f); err != nil {
-		os.Remove(name)
+	} else if err := copyItemsToWriter(items, handler, writer); err != nil {
 		return "", err
+	} else if err := writer.Close(); err != nil {
+		return "", err
+	} else if key, err := writer.Key(); err != nil {
+		return "", err
+	} else {
+		return string(key), nil
 	}
-
-	return name, f.Close()
 }
 
-func (fis *FileIntermediateStorage) Iterator(name string, handler KeyValueHandler) (IntermediateStorageIterator, error) {
-	f, err := os.Open(name)
-	if err != nil {
-		return nil, err
-	}
+func (fis *BlobIntermediateStorage) Iterator(c appengine.Context, name string, handler KeyValueHandler) (IntermediateStorageIterator, error) {
+	f := blobstore.NewReader(c, appengine.BlobKey(name))
 
 	return &ReaderIterator{bufio.NewReader(f), handler}, nil
+}
+
+func (fis *BlobIntermediateStorage) RemoveIntermediate(c appengine.Context, name string) error {
+	return blobstore.Delete(c, appengine.BlobKey(name))
 }
 
 func copyItemsToWriter(items []MappedData, handler KeyValueHandler, w io.Writer) error {

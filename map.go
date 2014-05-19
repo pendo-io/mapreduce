@@ -122,7 +122,7 @@ func MapTask(c appengine.Context, mr MapReducePipeline, taskKey *datastore.Key, 
 	} else if reader, err := mr.ReaderFromName(readerName); err != nil {
 		finalErr = fmt.Errorf("error making reader: %s", err)
 	} else {
-		shardNames, finalErr = MapperFunc(mr, reader, int(shardCount))
+		shardNames, finalErr = MapperFunc(c, mr, reader, int(shardCount))
 	}
 
 	if finalErr == nil {
@@ -136,7 +136,7 @@ func MapTask(c appengine.Context, mr MapReducePipeline, taskKey *datastore.Key, 
 	}
 }
 
-func MapperFunc(mr MapReducePipeline, reader SingleInputReader, shardCount int) (map[string]int, error) {
+func MapperFunc(c appengine.Context, mr MapReducePipeline, reader SingleInputReader, shardCount int) (map[string]int, error) {
 	dataSets := make([]mappedDataList, shardCount)
 	for i := range dataSets {
 		dataSets[i] = mappedDataList{data: make([]MappedData, 0), compare: mr}
@@ -158,7 +158,7 @@ func MapperFunc(mr MapReducePipeline, reader SingleInputReader, shardCount int) 
 	names := make(map[string]int, len(dataSets))
 	for i := range dataSets {
 		sort.Sort(dataSets[i])
-		if name, err := mr.Store(dataSets[i].data, mr); err != nil {
+		if name, err := mr.Store(c, dataSets[i].data, mr); err != nil {
 			return nil, err
 		} else {
 			names[name] = i
