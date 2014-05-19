@@ -1,4 +1,4 @@
-package kyrie
+package mapreduce
 
 import (
 	"appengine"
