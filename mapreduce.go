@@ -154,7 +154,7 @@ func Run(c appengine.Context, job MapReduceJob) error {
 	}
 
 	for i := range tasks {
-		if err := job.PostTask(tasks[i].Url); err != nil {
+		if err := job.PostTask(c, tasks[i].Url); err != nil {
 			return err
 		}
 	}

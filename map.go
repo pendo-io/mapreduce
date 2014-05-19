@@ -34,7 +34,7 @@ func MapCompleteTask(c appengine.Context, pipeline MapReducePipeline, taskKey *d
 			return
 		}
 
-		pipeline.PostTask(fmt.Sprintf("/reducecomplete?taskKey=%s;status=error;error=%s", taskKey.Encode(), url.QueryEscape(finalErr.Error())))
+		pipeline.PostTask(c, fmt.Sprintf("/reducecomplete?taskKey=%s;status=error;error=%s", taskKey.Encode(), url.QueryEscape(finalErr.Error())))
 		return
 	}
 
@@ -111,7 +111,7 @@ func MapCompleteTask(c appengine.Context, pipeline MapReducePipeline, taskKey *d
 	}
 
 	for i := range tasks {
-		if err := pipeline.PostTask(tasks[i].Url); err != nil {
+		if err := pipeline.PostTask(c, tasks[i].Url); err != nil {
 			c.Errorf("failed to create post reduce task: %s", err.Error())
 			return
 		}
@@ -138,10 +138,10 @@ func MapTask(c appengine.Context, mr MapReducePipeline, taskKey *datastore.Key, 
 		if err := updateTask(c, taskKey, TaskStatusDone, "", shardNames); err != nil {
 			c.Criticalf("Could not update tast: %s", err)
 		}
-		mr.PostTask(fmt.Sprintf("/mapcomplete?taskKey=%s;status=done", taskKey.Encode()))
+		mr.PostTask(c, fmt.Sprintf("/mapcomplete?taskKey=%s;status=done", taskKey.Encode()))
 	} else {
 		updateTask(c, taskKey, TaskStatusFailed, finalErr.Error(), nil)
-		mr.PostTask(fmt.Sprintf("/mapcomplete?taskKey=%s;status=error;error=%s", taskKey.Encode(), url.QueryEscape(finalErr.Error())))
+		mr.PostTask(c, fmt.Sprintf("/mapcomplete?taskKey=%s;status=error;error=%s", taskKey.Encode(), url.QueryEscape(finalErr.Error())))
 	}
 }
 

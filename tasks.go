@@ -3,8 +3,10 @@ package kyrie
 import (
 	"appengine"
 	"appengine/datastore"
+	"appengine/taskqueue"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"time"
 )
 
@@ -47,7 +49,7 @@ type JobInfo struct {
 }
 
 type TaskInterface interface {
-	PostTask(fullUrl string) error
+	PostTask(c appengine.Context, fullUrl string) error
 }
 
 type TaskType string
@@ -207,4 +209,14 @@ func gatherTasks(c appengine.Context, jobKey *datastore.Key, taskType TaskType) 
 	}
 
 	return finalTasks, nil
+}
+
+type AppengineTaskQueue struct {
+	queueName string
+}
+
+func (q AppengineTaskQueue) PostTask(c appengine.Context, taskUrl string) error {
+	task := taskqueue.NewPOSTTask(taskUrl, url.Values{})
+	_, err := taskqueue.Add(c, task, q.queueName)
+	return err
 }

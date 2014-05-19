@@ -25,7 +25,7 @@ type SimpleTasks struct {
 	done    chan string
 }
 
-func (st SimpleTasks) PostTask(url string) error {
+func (st SimpleTasks) PostTask(c appengine.Context, url string) error {
 	if strings.Index(url, "/done") >= 0 {
 		st.done <- url
 		return nil

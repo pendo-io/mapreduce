@@ -32,7 +32,7 @@ func ReduceCompleteTask(c appengine.Context, pipeline MapReducePipeline, taskKey
 			return
 		}
 
-		pipeline.PostTask(fmt.Sprintf("/reducecomplete?taskKey=%s;status=error;error=%s", taskKey.Encode(), url.QueryEscape(finalErr.Error())))
+		pipeline.PostTask(c, fmt.Sprintf("/reducecomplete?taskKey=%s;status=error;error=%s", taskKey.Encode(), url.QueryEscape(finalErr.Error())))
 		return
 	}
 
@@ -47,7 +47,7 @@ func ReduceCompleteTask(c appengine.Context, pipeline MapReducePipeline, taskKey
 	}
 
 	successUrl := fmt.Sprintf("%s?state=%s;id=%d", job.OnCompleteUrl, TaskStatusDone, jobKey.IntID())
-	pipeline.PostTask(successUrl)
+	pipeline.PostTask(c, successUrl)
 
 }
 
@@ -75,10 +75,10 @@ func ReduceTask(c appengine.Context, mr MapReducePipeline, taskKey *datastore.Ke
 
 	if err == nil {
 		updateTask(c, taskKey, TaskStatusDone, "", writer.ToName())
-		mr.PostTask(fmt.Sprintf("/reducecomplete?taskKey=%s;status=done", taskKey.Encode()))
+		mr.PostTask(c, fmt.Sprintf("/reducecomplete?taskKey=%s;status=done", taskKey.Encode()))
 	} else {
 		updateTask(c, taskKey, TaskStatusFailed, err.Error(), nil)
-		mr.PostTask(fmt.Sprintf("/reducecomplete?taskKey=%s;status=error;error=%s", taskKey.Encode(), url.QueryEscape(err.Error())))
+		mr.PostTask(c, fmt.Sprintf("/reducecomplete?taskKey=%s;status=error;error=%s", taskKey.Encode(), url.QueryEscape(err.Error())))
 	}
 }
 
