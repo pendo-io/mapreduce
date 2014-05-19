@@ -67,7 +67,6 @@ func MapCompleteTask(c appengine.Context, pipeline MapReducePipeline, taskKey *d
 			c.Errorf("cannot unmarshal map shard names: %s", err.Error())
 			return
 		} else {
-			fmt.Printf("task %d: %s\n", i, shardNames)
 			for name, shard := range shardNames {
 				storageNames[shard] = append(storageNames[shard], name)
 			}
