@@ -23,12 +23,19 @@ func ReduceCompleteTask(c appengine.Context, pipeline MapReducePipeline, taskKey
 		finalErr = fmt.Errorf("unknown task status %s", status)
 	}
 
+	jobKey := taskKey.Parent()
+
 	if finalErr != nil {
 		c.Errorf("bad status from task: %s", finalErr.Error())
+		prevJob, _ := updateJobStage(c, jobKey, StageFailed)
+		if prevJob.Stage == StageFailed {
+			return
+		}
+
+		pipeline.PostTask(fmt.Sprintf("/reducecomplete?taskKey=%s;status=error;error=%s", taskKey.Encode(), url.QueryEscape(finalErr.Error())))
 		return
 	}
 
-	jobKey := taskKey.Parent()
 	done, job, err := taskComplete(c, jobKey, StageReducing, StageDone)
 	if err != nil {
 		c.Errorf("error getting task complete status: %s", err.Error())
@@ -67,7 +74,7 @@ func ReduceTask(c appengine.Context, mr MapReducePipeline, taskKey *datastore.Ke
 	}
 
 	if err == nil {
-		updateTask(c, taskKey, TaskStatusDone, "", nil)
+		updateTask(c, taskKey, TaskStatusDone, "", writer.ToName())
 		mr.PostTask(fmt.Sprintf("/reducecomplete?taskKey=%s;status=done", taskKey.Encode()))
 	} else {
 		updateTask(c, taskKey, TaskStatusFailed, err.Error(), nil)

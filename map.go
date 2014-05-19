@@ -44,6 +44,9 @@ func MapCompleteTask(c appengine.Context, pipeline MapReducePipeline, taskKey *d
 		return
 	}
 
+	// we'll never get here if the task was marked failed because of taskComplete's check
+	// of the current stage
+
 	if !done {
 		return
 	}
