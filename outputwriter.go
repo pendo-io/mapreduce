@@ -2,7 +2,6 @@ package mapreduce
 
 import (
 	"appengine"
-	"appengine/blobstore"
 	"fmt"
 	"io"
 	"os"
@@ -59,52 +58,4 @@ func newSingleFileLineOutputWriter(path string) (SingleOutputWriter, error) {
 	}
 
 	return SingleFileLineOutputWriter{path: path, LineOutputWriter: LineOutputWriter{w}}, nil
-}
-
-type BlobFileLineOutputWriter struct {
-	LineOutputWriter
-	key        appengine.BlobKey
-	blobWriter *blobstore.Writer
-}
-
-func (b *BlobFileLineOutputWriter) Close(c appengine.Context) {
-	b.blobWriter.Close()
-	b.key, _ = b.blobWriter.Key()
-}
-
-func (b *BlobFileLineOutputWriter) ToName() string {
-	if string(b.key) == "" {
-		return "(unnamedblob)"
-	}
-
-	return string(b.key)
-}
-
-type BlobstoreWriter struct {
-	count int
-}
-
-func (b BlobstoreWriter) WriterNames(c appengine.Context) ([]string, error) {
-	result := make([]string, b.count)
-	for i := range result {
-		result[i] = "(unnamedblob)"
-	}
-
-	return result, nil
-}
-
-func (m BlobstoreWriter) WriterFromName(c appengine.Context, name string) (SingleOutputWriter, error) {
-	if name != "(unnamedblob)" {
-		panic("ack")
-	}
-
-	w, err := blobstore.Create(c, "text/plain")
-	if err != nil {
-		return nil, err
-	}
-
-	return &BlobFileLineOutputWriter{
-		LineOutputWriter: LineOutputWriter{w},
-		blobWriter:       w,
-	}, nil
 }

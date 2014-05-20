@@ -2,7 +2,6 @@ package mapreduce
 
 import (
 	"appengine"
-	"appengine/blobstore"
 	"bufio"
 	"encoding/json"
 	"fmt"
@@ -94,34 +93,6 @@ func (r *ReaderIterator) Next() (MappedData, bool, error) {
 	}
 
 	return m, true, nil
-}
-
-type BlobIntermediateStorage struct {
-}
-
-func (fis BlobIntermediateStorage) Store(c appengine.Context, items []MappedData, handler KeyValueHandler) (string, error) {
-
-	if writer, err := blobstore.Create(c, "text/plain"); err != nil {
-		return "", err
-	} else if err := copyItemsToWriter(items, handler, writer); err != nil {
-		return "", err
-	} else if err := writer.Close(); err != nil {
-		return "", err
-	} else if key, err := writer.Key(); err != nil {
-		return "", err
-	} else {
-		return string(key), nil
-	}
-}
-
-func (fis BlobIntermediateStorage) Iterator(c appengine.Context, name string, handler KeyValueHandler) (IntermediateStorageIterator, error) {
-	f := blobstore.NewReader(c, appengine.BlobKey(name))
-
-	return &ReaderIterator{bufio.NewReader(f), handler}, nil
-}
-
-func (fis BlobIntermediateStorage) RemoveIntermediate(c appengine.Context, name string) error {
-	return blobstore.Delete(c, appengine.BlobKey(name))
 }
 
 func copyItemsToWriter(items []MappedData, handler KeyValueHandler, w io.Writer) error {
