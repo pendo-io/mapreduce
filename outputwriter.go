@@ -59,3 +59,33 @@ func newSingleFileLineOutputWriter(path string) (SingleOutputWriter, error) {
 
 	return SingleFileLineOutputWriter{path: path, LineOutputWriter: LineOutputWriter{w}}, nil
 }
+
+type NilOutputWriter struct {
+	count int
+}
+
+func (n NilOutputWriter) WriterNames(c appengine.Context) ([]string, error) {
+	result := make([]string, n.count)
+	for i := range result {
+		result[i] = "(niloutputwriter)"
+	}
+
+	return result, nil
+}
+
+func (n NilOutputWriter) WriterFromName(c appengine.Context, name string) (SingleOutputWriter, error) {
+	return NilSingleOutputWriter{}, nil
+}
+
+type NilSingleOutputWriter struct{}
+
+func (n NilSingleOutputWriter) Write(data interface{}) error {
+	return nil
+}
+
+func (n NilSingleOutputWriter) Close(c appengine.Context) {
+}
+
+func (n NilSingleOutputWriter) ToName() string {
+	return "(niloutput)"
+}
