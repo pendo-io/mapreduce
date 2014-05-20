@@ -81,7 +81,7 @@ func TestSomething(t *testing.T) {
 		OnCompleteUrl:     "/done",
 	}
 
-	err := Run(context, job)
+	_, err := Run(context, job)
 	if err != nil {
 		t.Logf("mapreduce failed to run: %s", err)
 		t.Fail()

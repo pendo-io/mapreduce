@@ -9,8 +9,7 @@ import (
 )
 
 type OutputWriter interface {
-	Writers(c appengine.Context) ([]SingleOutputWriter, error)
-	WriterCount() int
+	WriterNames(c appengine.Context) ([]string, error)
 	WriterFromName(c appengine.Context, name string) (SingleOutputWriter, error)
 }
 
@@ -18,21 +17,8 @@ type FileLineOutputWriter struct {
 	Paths []string
 }
 
-func (m FileLineOutputWriter) Writers(c appengine.Context) ([]SingleOutputWriter, error) {
-	writers := make([]SingleOutputWriter, len(m.Paths))
-	for i := range m.Paths {
-		var err error
-		writers[i], err = newSingleFileLineOutputWriter(m.Paths[i])
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	return writers, nil
-}
-
-func (m FileLineOutputWriter) WriterCount() int {
-	return len(m.Paths)
+func (m FileLineOutputWriter) WriterNames(c appengine.Context) ([]string, error) {
+	return m.Paths, nil
 }
 
 func (m FileLineOutputWriter) WriterFromName(c appengine.Context, name string) (SingleOutputWriter, error) {
@@ -88,7 +74,7 @@ func (b *BlobFileLineOutputWriter) Close(c appengine.Context) {
 
 func (b *BlobFileLineOutputWriter) ToName() string {
 	if string(b.key) == "" {
-		return "(unnamed)"
+		return "(unnamedblob)"
 	}
 
 	return string(b.key)
@@ -98,21 +84,17 @@ type BlobstoreWriter struct {
 	count int
 }
 
-func (b BlobstoreWriter) Writers(c appengine.Context) ([]SingleOutputWriter, error) {
-	result := make([]SingleOutputWriter, b.count)
+func (b BlobstoreWriter) WriterNames(c appengine.Context) ([]string, error) {
+	result := make([]string, b.count)
 	for i := range result {
-		result[i] = &BlobFileLineOutputWriter{}
+		result[i] = "(unnamedblob)"
 	}
 
 	return result, nil
 }
 
-func (b BlobstoreWriter) WriterCount() int {
-	return b.count
-}
-
 func (m BlobstoreWriter) WriterFromName(c appengine.Context, name string) (SingleOutputWriter, error) {
-	if name != "(unnamed)" {
+	if name != "(unnamedblob)" {
 		panic("ack")
 	}
 

@@ -104,41 +104,40 @@ type reduceResult struct {
 }
 
 func Run(c appengine.Context, job MapReduceJob) (int64, error) {
-	inputs, err := job.Inputs.Split()
+	readerNames, err := job.Inputs.ReaderNames()
 	if err != nil {
 		return 0, err
+	} else if len(readerNames) == 0 {
+		return 0, fmt.Errorf("no input readers")
 	}
 
-	reducerCount := job.Outputs.WriterCount()
-
-	writers, err := job.Outputs.Writers(c)
+	writerNames, err := job.Outputs.WriterNames(c)
 	if err != nil {
 		return 0, err
+	} else if len(writerNames) == 0 {
+		return 0, fmt.Errorf("no output writers")
 	}
 
-	writerNames := make([]string, len(writers))
-	for i := range writers {
-		writerNames[i] = writers[i].ToName()
-	}
+	reducerCount := len(writerNames)
 
 	jobKey, err := createJob(c, job.UrlPrefix, writerNames, job.OnCompleteUrl)
 	if err != nil {
 		return 0, err
 	}
 
-	taskKeys := make([]*datastore.Key, len(inputs))
-	tasks := make([]JobTask, len(inputs))
-	firstId, _, err := datastore.AllocateIDs(c, TaskEntity, jobKey, len(inputs))
+	taskKeys := make([]*datastore.Key, len(readerNames))
+	tasks := make([]JobTask, len(readerNames))
+	firstId, _, err := datastore.AllocateIDs(c, TaskEntity, jobKey, len(readerNames))
 	if err != nil {
 		return 0, err
 	}
 
-	for i, input := range inputs {
+	for i, readerName := range readerNames {
 		taskKeys[i] = datastore.NewKey(c, TaskEntity, "", firstId, jobKey)
 		firstId++
 
 		url := fmt.Sprintf("%s/map?taskKey=%s;reader=%s;shards=%d",
-			job.UrlPrefix, taskKeys[i].Encode(), input.ToName(),
+			job.UrlPrefix, taskKeys[i].Encode(), readerName,
 			reducerCount)
 
 		tasks[i] = JobTask{
