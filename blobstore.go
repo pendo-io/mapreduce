@@ -26,11 +26,11 @@ func (b *BlobFileLineOutputWriter) ToName() string {
 }
 
 type BlobstoreWriter struct {
-	count int
+	Count int
 }
 
 func (b BlobstoreWriter) WriterNames(c appengine.Context) ([]string, error) {
-	result := make([]string, b.count)
+	result := make([]string, b.Count)
 	for i := range result {
 		result[i] = "(unnamedblob)"
 	}
