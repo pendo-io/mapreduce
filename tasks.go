@@ -50,6 +50,7 @@ type JobInfo struct {
 
 type TaskInterface interface {
 	PostTask(c appengine.Context, fullUrl string) error
+	PostStatus(c appengine.Context, fullUrl string) error
 }
 
 type TaskType string
@@ -226,11 +227,20 @@ func gatherTasks(c appengine.Context, jobKey *datastore.Key, taskType TaskType) 
 }
 
 type AppengineTaskQueue struct {
-	queueName string
+	// StatusQueueName is the name of the queue used for tasks to report status to the controller
+	StatusQueueName string
+	// TaskQueueName is the name of the queue used to start new tasks
+	TaskQueueName string
 }
 
 func (q AppengineTaskQueue) PostTask(c appengine.Context, taskUrl string) error {
 	task := taskqueue.NewPOSTTask(taskUrl, url.Values{})
-	_, err := taskqueue.Add(c, task, q.queueName)
+	_, err := taskqueue.Add(c, task, q.TaskQueueName)
+	return err
+}
+
+func (q AppengineTaskQueue) PostStatus(c appengine.Context, taskUrl string) error {
+	task := taskqueue.NewPOSTTask(taskUrl, url.Values{})
+	_, err := taskqueue.Add(c, task, q.StatusQueueName)
 	return err
 }

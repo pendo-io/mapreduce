@@ -47,7 +47,7 @@ func ReduceCompleteTask(c appengine.Context, pipeline MapReducePipeline, taskKey
 	}
 
 	successUrl := fmt.Sprintf("%s?state=%s;id=%d", job.OnCompleteUrl, TaskStatusDone, jobKey.IntID())
-	pipeline.PostTask(c, successUrl)
+	pipeline.PostStatus(c, successUrl)
 
 }
 
@@ -75,10 +75,10 @@ func ReduceTask(c appengine.Context, baseUrl string, mr MapReducePipeline, taskK
 
 	if err == nil {
 		updateTask(c, taskKey, TaskStatusDone, "", writer.ToName())
-		mr.PostTask(c, fmt.Sprintf("%s/reducecomplete?taskKey=%s;status=done", baseUrl, taskKey.Encode()))
+		mr.PostStatus(c, fmt.Sprintf("%s/reducecomplete?taskKey=%s;status=done", baseUrl, taskKey.Encode()))
 	} else {
 		updateTask(c, taskKey, TaskStatusFailed, err.Error(), nil)
-		mr.PostTask(c, fmt.Sprintf("%s/reducecomplete?taskKey=%s;status=error;error=%s", baseUrl, taskKey.Encode(), url.QueryEscape(err.Error())))
+		mr.PostStatus(c, fmt.Sprintf("%s/reducecomplete?taskKey=%s;status=error;error=%s", baseUrl, taskKey.Encode(), url.QueryEscape(err.Error())))
 	}
 }
 

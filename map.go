@@ -34,7 +34,8 @@ func MapCompleteTask(c appengine.Context, pipeline MapReducePipeline, taskKey *d
 			return
 		}
 
-		pipeline.PostTask(c, fmt.Sprintf("/reducecomplete?taskKey=%s;status=error;error=%s", taskKey.Encode(), url.QueryEscape(finalErr.Error())))
+		pipeline.PostStatus(c, fmt.Sprintf("%s?state=error;error=%s;id=%d", taskKey.Encode(),
+			url.QueryEscape(finalErr.Error()), jobKey.IntID()))
 		return
 	}
 
