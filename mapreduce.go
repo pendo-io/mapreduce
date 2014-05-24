@@ -5,6 +5,7 @@ import (
 	"appengine/datastore"
 	"fmt"
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 )
@@ -14,12 +15,14 @@ type MappedData struct {
 	Value interface{}
 }
 
+type StatusUpdateFunc func(format string, paramList ...interface{})
+
 type Mapper interface {
-	Map(item interface{}) ([]MappedData, error)
+	Map(item interface{}, statusUpdate StatusUpdateFunc) ([]MappedData, error)
 }
 
 type Reducer interface {
-	Reduce(key interface{}, values []interface{}) (result interface{}, err error)
+	Reduce(key interface{}, values []interface{}, statusUpdate StatusUpdateFunc) (result interface{}, err error)
 }
 
 type Sharder interface {
@@ -195,8 +198,19 @@ func (h handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		MapTask(c, h.baseUrl, h.pipeline, taskKey, r)
 	} else if strings.HasSuffix(r.URL.Path, "/mapcomplete") {
 		MapCompleteTask(c, h.pipeline, taskKey, r)
+	} else if strings.HasSuffix(r.URL.Path, "/mapstatus") ||
+		strings.HasSuffix(r.URL.Path, "/reducestatus") {
+
+		updateTask(c, taskKey, "", r.FormValue("msg"), nil)
 	} else {
-		http.Error(w, "unknown request uel", http.StatusNotFound)
+		http.Error(w, "unknown request url", http.StatusNotFound)
 		return
+	}
+}
+
+func makeStatusUpdateFunc(c appengine.Context, pipeline MapReducePipeline, urlStr string, taskKey string) StatusUpdateFunc {
+	return func(format string, paramList ...interface{}) {
+		pipeline.PostStatus(c, fmt.Sprintf("%s?taskKey=%s;msg=%s", urlStr, taskKey,
+			url.QueryEscape(fmt.Sprintf(format, paramList...))))
 	}
 }

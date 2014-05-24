@@ -69,7 +69,8 @@ func ReduceTask(c appengine.Context, baseUrl string, mr MapReducePipeline, taskK
 		err = fmt.Errorf("cannot unmarshal shard names: %s", err.Error())
 	} else if writer, err = mr.WriterFromName(c, writerName); err != nil {
 		err = fmt.Errorf("error getting writer: %s", err.Error())
-	} else if err = ReduceFunc(c, mr, writer, shardNames); err == nil {
+	} else if err = ReduceFunc(c, mr, writer, shardNames,
+		makeStatusUpdateFunc(c, mr, fmt.Sprintf("%s/reducestatus", baseUrl), taskKey.Encode())); err == nil {
 		writer.Close(c)
 	}
 
@@ -82,7 +83,9 @@ func ReduceTask(c appengine.Context, baseUrl string, mr MapReducePipeline, taskK
 	}
 }
 
-func ReduceFunc(c appengine.Context, mr MapReducePipeline, writer SingleOutputWriter, shardNames []string) error {
+func ReduceFunc(c appengine.Context, mr MapReducePipeline, writer SingleOutputWriter, shardNames []string,
+	statusFunc StatusUpdateFunc) error {
+
 	inputCount := len(shardNames)
 
 	items := shardMappedDataList{
@@ -133,7 +136,7 @@ func ReduceFunc(c appengine.Context, mr MapReducePipeline, writer SingleOutputWr
 			continue
 		}
 
-		if result, err := mr.Reduce(key, values); err != nil {
+		if result, err := mr.Reduce(key, values, statusFunc); err != nil {
 			return err
 		} else if err := writer.Write(result); err != nil {
 			return err
@@ -144,7 +147,7 @@ func ReduceFunc(c appengine.Context, mr MapReducePipeline, writer SingleOutputWr
 		values[0] = item.Value
 	}
 
-	if result, err := mr.Reduce(key, values); err != nil {
+	if result, err := mr.Reduce(key, values, statusFunc); err != nil {
 		return err
 	} else if err := writer.Write(result); err != nil {
 		return err

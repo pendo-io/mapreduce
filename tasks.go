@@ -5,7 +5,6 @@ import (
 	"appengine/datastore"
 	"appengine/taskqueue"
 	"encoding/json"
-	"fmt"
 	"net/url"
 	"time"
 )
@@ -34,6 +33,7 @@ type JobTask struct {
 	RunCount  int
 	Url       string `datastore:",noindex"`
 	Info      string
+	StartTime time.Time
 	UpdatedAt time.Time
 	Type      TaskType
 	Result    string
@@ -77,6 +77,11 @@ func createJob(c appengine.Context, urlPrefix string, writerNames []string, onCo
 }
 
 func createTasks(c appengine.Context, jobKey *datastore.Key, taskKeys []*datastore.Key, tasks []JobTask, newStage JobStage) error {
+	now := time.Now()
+	for i := range tasks {
+		tasks[i].StartTime = now
+	}
+
 	err := datastore.RunInTransaction(c, func(c appengine.Context) error {
 		var job JobInfo
 
@@ -115,8 +120,7 @@ func runInTransaction(c appengine.Context, tryCount int, f func(c appengine.Cont
 		time.Sleep(100 * time.Millisecond)
 	}
 
-	c.Criticalf("could not write status for job %d after multiple tries: %s", finalErr)
-	return fmt.Errorf("failed to write new job status after multiple attempts: %s", finalErr)
+	return finalErr
 }
 
 func updateJobStage(c appengine.Context, jobKey *datastore.Key, status JobStage) (prev JobInfo, finalErr error) {
@@ -132,6 +136,10 @@ func updateJobStage(c appengine.Context, jobKey *datastore.Key, status JobStage)
 		_, err := datastore.Put(c, jobKey, &job)
 		return err
 	})
+
+	if finalErr != nil {
+		c.Criticalf("updateJobStage failed: %s", finalErr)
+	}
 
 	return
 }
@@ -166,6 +174,10 @@ func taskComplete(c appengine.Context, jobKey *datastore.Key, expectedStage, nex
 		return err
 	})
 
+	if finalErr != nil {
+		c.Criticalf("taskComplete failed: %s", finalErr)
+	}
+
 	return
 }
 
@@ -177,8 +189,11 @@ func updateTask(c appengine.Context, taskKey *datastore.Key, status TaskStatus, 
 	}
 
 	task.UpdatedAt = time.Now()
-	task.Status = status
 	task.Info = info
+
+	if status != "" {
+		task.Status = status
+	}
 
 	if result != nil {
 		resultBytes, err := json.Marshal(result)

@@ -17,6 +17,8 @@ type testUniqueWordCount struct {
 	IntValueHandler
 	BlobIntermediateStorage
 	SimpleTasks
+
+	lineCount int
 }
 
 type SimpleTasks struct {
@@ -41,20 +43,31 @@ func (st SimpleTasks) PostTask(c appengine.Context, url string) error {
 	return nil
 }
 
-func (uwc testUniqueWordCount) Map(item interface{}) ([]MappedData, error) {
+func (st SimpleTasks) PostStatus(c appengine.Context, url string) error {
+	return st.PostTask(c, url)
+}
+
+func (uwc testUniqueWordCount) Map(item interface{}, status StatusUpdateFunc) ([]MappedData, error) {
 	line := item.(string)
 	words := strings.Split(line, " ")
 	result := make([]MappedData, 0, len(words))
+	count := 0
 	for _, word := range words {
 		if len(word) > 0 {
 			result = append(result, MappedData{word, 1})
 		}
+		count++
+	}
+
+	uwc.lineCount++
+	if uwc.lineCount%2500 == 0 {
+		status("line %d", uwc.lineCount)
 	}
 
 	return result, nil
 }
 
-func (uwc testUniqueWordCount) Reduce(key interface{}, values []interface{}) (result interface{}, err error) {
+func (uwc testUniqueWordCount) Reduce(key interface{}, values []interface{}, status StatusUpdateFunc) (result interface{}, err error) {
 	return fmt.Sprintf("%s: %d", key, len(values)), nil
 }
 
@@ -87,7 +100,7 @@ func TestSomething(t *testing.T) {
 		t.Fail()
 	} else {
 		resultUrl := <-u.SimpleTasks.done
-		t.Logf("got result: %s\n", resultUrl)
+		//t.Logf("got result: %s\n", resultUrl)
 		if strings.Index(resultUrl, "status=done") >= 0 {
 			t.Fail()
 		}

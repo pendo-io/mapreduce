@@ -132,7 +132,8 @@ func MapTask(c appengine.Context, baseUrl string, mr MapReducePipeline, taskKey 
 	} else if reader, err := mr.ReaderFromName(readerName); err != nil {
 		finalErr = fmt.Errorf("error making reader: %s", err)
 	} else {
-		shardNames, finalErr = MapperFunc(c, mr, reader, int(shardCount))
+		shardNames, finalErr = MapperFunc(c, mr, reader, int(shardCount),
+			makeStatusUpdateFunc(c, mr, fmt.Sprintf("%s/mapstatus", baseUrl), taskKey.Encode()))
 	}
 
 	if finalErr == nil {
@@ -146,14 +147,16 @@ func MapTask(c appengine.Context, baseUrl string, mr MapReducePipeline, taskKey 
 	}
 }
 
-func MapperFunc(c appengine.Context, mr MapReducePipeline, reader SingleInputReader, shardCount int) (map[string]int, error) {
+func MapperFunc(c appengine.Context, mr MapReducePipeline, reader SingleInputReader, shardCount int,
+	statusFunc StatusUpdateFunc) (map[string]int, error) {
+
 	dataSets := make([]mappedDataList, shardCount)
 	for i := range dataSets {
 		dataSets[i] = mappedDataList{data: make([]MappedData, 0), compare: mr}
 	}
 
 	for item, err := reader.Next(); item != nil && err == nil; item, err = reader.Next() {
-		itemList, err := mr.Map(item)
+		itemList, err := mr.Map(item, statusFunc)
 
 		if err != nil {
 			return nil, err
