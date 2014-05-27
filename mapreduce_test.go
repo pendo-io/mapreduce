@@ -47,6 +47,23 @@ func (st SimpleTasks) PostStatus(c appengine.Context, url string) error {
 	return st.PostTask(c, url)
 }
 
+func (mrt *MapreduceTests) setup(pipe MapReducePipeline, tasks *SimpleTasks) MapReduceJob {
+	*tasks = SimpleTasks{
+		handler: MapReduceHandler("/mr/test", pipe, mrt.ContextFn),
+		done:    make(chan string),
+	}
+
+	job := MapReduceJob{
+		MapReducePipeline: pipe,
+		Inputs:            FileLineInputReader{[]string{"testdata/pandp-1", "testdata/pandp-2", "testdata/pandp-3", "testdata/pandp-4", "testdata/pandp-5"}},
+		Outputs:           FileLineOutputWriter{[]string{"test1.out", "test2.out"}},
+		UrlPrefix:         "/mr/test",
+		OnCompleteUrl:     "/done",
+	}
+
+	return job
+}
+
 func (uwc testUniqueWordCount) Map(item interface{}, status StatusUpdateFunc) ([]MappedData, error) {
 	line := item.(string)
 	words := strings.Split(line, " ")
@@ -116,6 +133,40 @@ func (mrt *MapreduceTests) TestMapPanic(c *ck.C) {
 	c.Check(fields["error"][0], ck.Equals, "failed task: I prefer not to enumerate")
 }
 
+type testMapError struct {
+	testUniqueWordCount
+}
+
+func (tmp testMapError) Map(item interface{}, status StatusUpdateFunc) ([]MappedData, error) {
+	mapped, err := tmp.testUniqueWordCount.Map(item, status)
+	for _, data := range mapped {
+		// this occurs exactly once, in input 2
+		if data.Key == "enumeration" {
+			return nil, fmt.Errorf("map had an error")
+		}
+	}
+
+	return mapped, err
+}
+
+func (mrt *MapreduceTests) TestMapError(c *ck.C) {
+	u := testMapError{}
+	job := mrt.setup(&u, &u.SimpleTasks)
+
+	_, err := Run(mrt.Context, job)
+	c.Check(err, ck.Equals, nil)
+
+	resultUrl := <-u.SimpleTasks.done
+
+	url, err := url.Parse(resultUrl)
+	c.Check(err, ck.IsNil)
+	fields := url.Query()
+	c.Check(err, ck.IsNil)
+
+	c.Check(fields["status"][0], ck.Equals, "error")
+	c.Check(fields["error"][0], ck.Equals, "failed task: map had an error")
+}
+
 type testReducePanic struct {
 	testUniqueWordCount
 }
@@ -126,23 +177,6 @@ func (trp testReducePanic) Reduce(key interface{}, values []interface{}, status 
 	}
 
 	return trp.testUniqueWordCount.Reduce(key, values, status)
-}
-
-func (mrt *MapreduceTests) setup(pipe MapReducePipeline, tasks *SimpleTasks) MapReduceJob {
-	*tasks = SimpleTasks{
-		handler: MapReduceHandler("/mr/test", pipe, mrt.ContextFn),
-		done:    make(chan string),
-	}
-
-	job := MapReduceJob{
-		MapReducePipeline: pipe,
-		Inputs:            FileLineInputReader{[]string{"testdata/pandp-1", "testdata/pandp-2", "testdata/pandp-3", "testdata/pandp-4", "testdata/pandp-5"}},
-		Outputs:           FileLineOutputWriter{[]string{"test1.out", "test2.out"}},
-		UrlPrefix:         "/mr/test",
-		OnCompleteUrl:     "/done",
-	}
-
-	return job
 }
 
 func (mrt *MapreduceTests) TestReducePanic(c *ck.C) {
@@ -161,4 +195,34 @@ func (mrt *MapreduceTests) TestReducePanic(c *ck.C) {
 
 	c.Check(fields["status"][0], ck.Equals, "error")
 	c.Check(fields["error"][0], ck.Equals, "failed task: Reduce panic")
+}
+
+type testReduceError struct {
+	testUniqueWordCount
+}
+
+func (trp testReduceError) Reduce(key interface{}, values []interface{}, status StatusUpdateFunc) (result interface{}, err error) {
+	if key.(string) == "enumeration" {
+		return nil, fmt.Errorf("reduce had an error")
+	}
+
+	return trp.testUniqueWordCount.Reduce(key, values, status)
+}
+
+func (mrt *MapreduceTests) TestReduceError(c *ck.C) {
+	u := testReduceError{}
+	job := mrt.setup(&u, &u.SimpleTasks)
+
+	_, err := Run(mrt.Context, job)
+	c.Check(err, ck.Equals, nil)
+
+	resultUrl := <-u.SimpleTasks.done
+
+	url, err := url.Parse(resultUrl)
+	c.Check(err, ck.IsNil)
+	fields := url.Query()
+	c.Check(err, ck.IsNil)
+
+	c.Check(fields["status"][0], ck.Equals, "error")
+	c.Check(fields["error"][0], ck.Equals, "failed task: reduce had an error")
 }

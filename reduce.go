@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"runtime"
 )
 
 func ReduceCompleteTask(c appengine.Context, pipeline MapReducePipeline, taskKey *datastore.Key, r *http.Request) {
@@ -30,13 +31,14 @@ func ReduceCompleteTask(c appengine.Context, pipeline MapReducePipeline, taskKey
 }
 
 func ReduceTask(c appengine.Context, baseUrl string, mr MapReducePipeline, taskKey *datastore.Key, r *http.Request) {
-	var err error
 	var shardNames []string
 	var writer SingleOutputWriter
 
 	defer func() {
 		if r := recover(); r != nil {
-			c.Criticalf("panic inside of reduce task %s", taskKey.Encode())
+			stack := make([]byte, 16384)
+			bytes := runtime.Stack(stack, false)
+			c.Criticalf("panic inside of reduce task %s:\n%s\n", taskKey.Encode(), stack[0:bytes])
 			errMsg := fmt.Sprintf("%s", r)
 			mr.PostTask(c, fmt.Sprintf("%s/reducecomplete?taskKey=%s;status=error;error=%s", baseUrl, taskKey.Encode(), url.QueryEscape(errMsg)))
 		}
@@ -44,29 +46,32 @@ func ReduceTask(c appengine.Context, baseUrl string, mr MapReducePipeline, taskK
 
 	updateTask(c, taskKey, TaskStatusRunning, "", nil)
 
+	var finalError error
 	if writerName := r.FormValue("writer"); writerName == "" {
-		err = fmt.Errorf("writer parameter required")
+		finalError = fmt.Errorf("writer parameter required")
 	} else if shardParam := r.FormValue("shards"); shardParam == "" {
-		err = fmt.Errorf("shards parameter required")
+		finalError = fmt.Errorf("shards parameter required")
 	} else if shardJson, err := url.QueryUnescape(shardParam); err != nil {
-		err = fmt.Errorf("cannot urldecode shards: %s", err.Error)
-	} else if err = json.Unmarshal([]byte(shardJson), &shardNames); err != nil {
+		finalError = fmt.Errorf("cannot urldecode shards: %s", err.Error)
+	} else if err := json.Unmarshal([]byte(shardJson), &shardNames); err != nil {
 		fmt.Printf("json is ", shardJson)
-		err = fmt.Errorf("cannot unmarshal shard names: %s", err.Error())
+		finalError = fmt.Errorf("cannot unmarshal shard names: %s", err.Error())
 	} else if writer, err = mr.WriterFromName(c, writerName); err != nil {
-		err = fmt.Errorf("error getting writer: %s", err.Error())
-	} else if err = ReduceFunc(c, mr, writer, shardNames,
-		makeStatusUpdateFunc(c, mr, fmt.Sprintf("%s/reducestatus", baseUrl), taskKey.Encode())); err == nil {
-		writer.Close(c)
+		finalError = fmt.Errorf("error getting writer: %s", err.Error())
+	} else {
+		finalError = ReduceFunc(c, mr, writer, shardNames,
+			makeStatusUpdateFunc(c, mr, fmt.Sprintf("%s/reducestatus", baseUrl), taskKey.Encode()))
 	}
 
-	if err == nil {
+	if finalError == nil {
 		updateTask(c, taskKey, TaskStatusDone, "", writer.ToName())
 		mr.PostStatus(c, fmt.Sprintf("%s/reducecomplete?taskKey=%s;status=done", baseUrl, taskKey.Encode()))
 	} else {
-		updateTask(c, taskKey, TaskStatusFailed, err.Error(), nil)
-		mr.PostStatus(c, fmt.Sprintf("%s/reducecomplete?taskKey=%s;status=error;error=%s", baseUrl, taskKey.Encode(), url.QueryEscape(err.Error())))
+		updateTask(c, taskKey, TaskStatusFailed, finalError.Error(), nil)
+		mr.PostStatus(c, fmt.Sprintf("%s/reducecomplete?taskKey=%s;status=error;error=%s", baseUrl, taskKey.Encode(), url.QueryEscape(finalError.Error())))
 	}
+
+	writer.Close(c)
 }
 
 func ReduceFunc(c appengine.Context, mr MapReducePipeline, writer SingleOutputWriter, shardNames []string,

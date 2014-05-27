@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"runtime"
 	"sort"
 	"strconv"
 )
@@ -103,7 +104,9 @@ func MapTask(c appengine.Context, baseUrl string, mr MapReducePipeline, taskKey 
 
 	defer func() {
 		if r := recover(); r != nil {
-			c.Criticalf("panic inside of map task %s", taskKey.Encode())
+			stack := make([]byte, 16384)
+			bytes := runtime.Stack(stack, false)
+			c.Criticalf("panic inside of map task %s:\n%s\n", taskKey.Encode(), stack[0:bytes])
 			errMsg := fmt.Sprintf("%s", r)
 			mr.PostTask(c, fmt.Sprintf("%s/mapcomplete?taskKey=%s;status=error;error=%s", baseUrl, taskKey.Encode(), url.QueryEscape(errMsg)))
 		}
