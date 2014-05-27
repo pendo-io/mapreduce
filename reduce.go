@@ -46,7 +46,7 @@ func ReduceCompleteTask(c appengine.Context, pipeline MapReducePipeline, taskKey
 		return
 	}
 
-	successUrl := fmt.Sprintf("%s?state=%s;id=%d", job.OnCompleteUrl, TaskStatusDone, jobKey.IntID())
+	successUrl := fmt.Sprintf("%s?status=%s;id=%d", job.OnCompleteUrl, TaskStatusDone, jobKey.IntID())
 	pipeline.PostStatus(c, successUrl)
 
 }
@@ -55,6 +55,14 @@ func ReduceTask(c appengine.Context, baseUrl string, mr MapReducePipeline, taskK
 	var err error
 	var shardNames []string
 	var writer SingleOutputWriter
+
+	defer func() {
+		if r := recover(); r != nil {
+			c.Criticalf("panic inside of map task %s", taskKey.Encode())
+			errMsg := fmt.Sprintf("%s", r)
+			mr.PostTask(c, fmt.Sprintf("%s/mapcomplete?taskKey=%s;status=error;error=%s", baseUrl, taskKey.Encode(), url.QueryEscape(errMsg)))
+		}
+	}()
 
 	updateTask(c, taskKey, TaskStatusRunning, "", nil)
 

@@ -2,12 +2,12 @@ package mapreduce
 
 import (
 	"appengine"
-	"appengine/aetest"
 	"fmt"
+	ck "gopkg.in/check.v1"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
-	"testing"
 )
 
 type testUniqueWordCount struct {
@@ -27,7 +27,7 @@ type SimpleTasks struct {
 }
 
 func (st SimpleTasks) PostTask(c appengine.Context, url string) error {
-	if strings.Index(url, "/done") >= 0 {
+	if strings.HasPrefix(url, "/done") {
 		st.done <- url
 		return nil
 	}
@@ -71,18 +71,11 @@ func (uwc testUniqueWordCount) Reduce(key interface{}, values []interface{}, sta
 	return fmt.Sprintf("%s: %d", key, len(values)), nil
 }
 
-func TestSomething(t *testing.T) {
+func (mrt *MapreduceTests) TestWordCount(c *ck.C) {
 	u := testUniqueWordCount{}
 
-	context, _ := aetest.NewContext(nil)
-	defer context.Close()
-
-	contextFn := func(r *http.Request) appengine.Context {
-		return context
-	}
-
 	u.SimpleTasks = SimpleTasks{
-		handler: MapReduceHandler("/mr/test", &u, contextFn),
+		handler: MapReduceHandler("/mr/test", &u, mrt.ContextFn),
 		done:    make(chan string),
 	}
 
@@ -94,15 +87,97 @@ func TestSomething(t *testing.T) {
 		OnCompleteUrl:     "/done",
 	}
 
-	_, err := Run(context, job)
-	if err != nil {
-		t.Logf("mapreduce failed to run: %s", err)
-		t.Fail()
-	} else {
-		resultUrl := <-u.SimpleTasks.done
-		//t.Logf("got result: %s\n", resultUrl)
-		if strings.Index(resultUrl, "status=done") >= 0 {
-			t.Fail()
+	_, err := Run(mrt.Context, job)
+	c.Assert(err, ck.Equals, nil)
+
+	resultUrl := <-u.SimpleTasks.done
+	c.Check(strings.Index(resultUrl, "status=done"), ck.Equals, 6)
+}
+
+type testMapPanic struct {
+	testUniqueWordCount
+}
+
+func (tmp testMapPanic) Map(item interface{}, status StatusUpdateFunc) ([]MappedData, error) {
+	mapped, err := tmp.testUniqueWordCount.Map(item, status)
+	for _, data := range mapped {
+		// this occurs exactly once, in input 2
+		if data.Key == "enumeration" {
+			panic("I prefer not to enumerate")
 		}
 	}
+
+	return mapped, err
+}
+
+func (mrt *MapreduceTests) TestMapPanic(c *ck.C) {
+	u := testMapPanic{}
+
+	u.SimpleTasks = SimpleTasks{
+		handler: MapReduceHandler("/mr/test", &u, mrt.ContextFn),
+		done:    make(chan string),
+	}
+
+	job := MapReduceJob{
+		MapReducePipeline: u,
+		Inputs:            FileLineInputReader{[]string{"testdata/pandp-1", "testdata/pandp-2", "testdata/pandp-3", "testdata/pandp-4", "testdata/pandp-5"}},
+		Outputs:           FileLineOutputWriter{[]string{"test1.out", "test2.out"}},
+		UrlPrefix:         "/mr/test",
+		OnCompleteUrl:     "/done",
+	}
+
+	_, err := Run(mrt.Context, job)
+	c.Check(err, ck.Equals, nil)
+
+	resultUrl := <-u.SimpleTasks.done
+
+	url, err := url.Parse(resultUrl)
+	c.Check(err, ck.IsNil)
+	fields := url.Query()
+	c.Check(err, ck.IsNil)
+
+	c.Check(fields["status"][0], ck.Equals, "error")
+	c.Check(fields["error"][0], ck.Equals, "failed map: I prefer not to enumerate")
+}
+
+type testReducePanic struct {
+	testUniqueWordCount
+}
+
+func (trp testReducePanic) Reduce(key interface{}, values []interface{}, status StatusUpdateFunc) (result interface{}, err error) {
+	if key.(string) == "enumeration" {
+		panic("Reduce panic")
+	}
+
+	return trp.testUniqueWordCount.Reduce(key, values, status)
+}
+
+func (mrt *MapreduceTests) TestReducePanic(c *ck.C) {
+	u := testReducePanic{}
+
+	u.SimpleTasks = SimpleTasks{
+		handler: MapReduceHandler("/mr/test", &u, mrt.ContextFn),
+		done:    make(chan string),
+	}
+
+	job := MapReduceJob{
+		MapReducePipeline: u,
+		Inputs:            FileLineInputReader{[]string{"testdata/pandp-1", "testdata/pandp-2", "testdata/pandp-3", "testdata/pandp-4", "testdata/pandp-5"}},
+		Outputs:           FileLineOutputWriter{[]string{"test1.out", "test2.out"}},
+		UrlPrefix:         "/mr/test",
+		OnCompleteUrl:     "/done",
+	}
+
+	_, err := Run(mrt.Context, job)
+	c.Check(err, ck.Equals, nil)
+
+	resultUrl := <-u.SimpleTasks.done
+
+	url, err := url.Parse(resultUrl)
+	c.Check(err, ck.IsNil)
+	fields := url.Query()
+	c.Check(err, ck.IsNil)
+
+	c.Check(fields["status"][0], ck.Equals, "error")
+	c.Check(fields["error"][0], ck.Equals, "failed map: Reduce panic")
 }

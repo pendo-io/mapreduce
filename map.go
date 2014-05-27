@@ -20,7 +20,7 @@ func MapCompleteTask(c appengine.Context, pipeline MapReducePipeline, taskKey *d
 		finalErr = fmt.Errorf("missing status for request %s", r)
 	case "done":
 	case "error":
-		finalErr = fmt.Errorf("failed job: %s", r.FormValue("error"))
+		finalErr = fmt.Errorf("failed map: %s", r.FormValue("error"))
 	default:
 		finalErr = fmt.Errorf("unknown job status %s", status)
 	}
@@ -34,7 +34,7 @@ func MapCompleteTask(c appengine.Context, pipeline MapReducePipeline, taskKey *d
 			return
 		}
 
-		pipeline.PostStatus(c, fmt.Sprintf("%s?state=error;error=%s;id=%d", taskKey.Encode(),
+		pipeline.PostStatus(c, fmt.Sprintf("%s?status=error;error=%s;id=%d", prevJob.OnCompleteUrl,
 			url.QueryEscape(finalErr.Error()), jobKey.IntID()))
 		return
 	}
@@ -122,6 +122,14 @@ func MapCompleteTask(c appengine.Context, pipeline MapReducePipeline, taskKey *d
 func MapTask(c appengine.Context, baseUrl string, mr MapReducePipeline, taskKey *datastore.Key, r *http.Request) {
 	var finalErr error
 	var shardNames map[string]int
+
+	defer func() {
+		if r := recover(); r != nil {
+			c.Criticalf("panic inside of map task %s", taskKey.Encode())
+			errMsg := fmt.Sprintf("%s", r)
+			mr.PostTask(c, fmt.Sprintf("%s/mapcomplete?taskKey=%s;status=error;error=%s", baseUrl, taskKey.Encode(), url.QueryEscape(errMsg)))
+		}
+	}()
 
 	if readerName := r.FormValue("reader"); readerName == "" {
 		finalErr = fmt.Errorf("reader parameter required")
