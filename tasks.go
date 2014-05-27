@@ -266,12 +266,13 @@ func parseCompleteRequest(c appengine.Context, pipeline MapReducePipeline, taskK
 	var finalErr error = nil
 
 	status := r.FormValue("status")
+
 	switch status {
 	case "":
 		finalErr = fmt.Errorf("missing status for request %s", r)
-	case "done":
 	case "error":
 		finalErr = fmt.Errorf("failed task: %s", r.FormValue("error"))
+	case "done":
 	default:
 		finalErr = fmt.Errorf("unknown job status %s", status)
 	}

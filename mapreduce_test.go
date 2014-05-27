@@ -73,19 +73,7 @@ func (uwc testUniqueWordCount) Reduce(key interface{}, values []interface{}, sta
 
 func (mrt *MapreduceTests) TestWordCount(c *ck.C) {
 	u := testUniqueWordCount{}
-
-	u.SimpleTasks = SimpleTasks{
-		handler: MapReduceHandler("/mr/test", &u, mrt.ContextFn),
-		done:    make(chan string),
-	}
-
-	job := MapReduceJob{
-		MapReducePipeline: u,
-		Inputs:            FileLineInputReader{[]string{"testdata/pandp-1", "testdata/pandp-2", "testdata/pandp-3", "testdata/pandp-4", "testdata/pandp-5"}},
-		Outputs:           FileLineOutputWriter{[]string{"test1.out", "test2.out"}},
-		UrlPrefix:         "/mr/test",
-		OnCompleteUrl:     "/done",
-	}
+	job := mrt.setup(&u, &u.SimpleTasks)
 
 	_, err := Run(mrt.Context, job)
 	c.Assert(err, ck.Equals, nil)
@@ -112,19 +100,7 @@ func (tmp testMapPanic) Map(item interface{}, status StatusUpdateFunc) ([]Mapped
 
 func (mrt *MapreduceTests) TestMapPanic(c *ck.C) {
 	u := testMapPanic{}
-
-	u.SimpleTasks = SimpleTasks{
-		handler: MapReduceHandler("/mr/test", &u, mrt.ContextFn),
-		done:    make(chan string),
-	}
-
-	job := MapReduceJob{
-		MapReducePipeline: u,
-		Inputs:            FileLineInputReader{[]string{"testdata/pandp-1", "testdata/pandp-2", "testdata/pandp-3", "testdata/pandp-4", "testdata/pandp-5"}},
-		Outputs:           FileLineOutputWriter{[]string{"test1.out", "test2.out"}},
-		UrlPrefix:         "/mr/test",
-		OnCompleteUrl:     "/done",
-	}
+	job := mrt.setup(&u, &u.SimpleTasks)
 
 	_, err := Run(mrt.Context, job)
 	c.Check(err, ck.Equals, nil)
@@ -152,21 +128,26 @@ func (trp testReducePanic) Reduce(key interface{}, values []interface{}, status 
 	return trp.testUniqueWordCount.Reduce(key, values, status)
 }
 
-func (mrt *MapreduceTests) TestReducePanic(c *ck.C) {
-	u := testReducePanic{}
-
-	u.SimpleTasks = SimpleTasks{
-		handler: MapReduceHandler("/mr/test", &u, mrt.ContextFn),
+func (mrt *MapreduceTests) setup(pipe MapReducePipeline, tasks *SimpleTasks) MapReduceJob {
+	*tasks = SimpleTasks{
+		handler: MapReduceHandler("/mr/test", pipe, mrt.ContextFn),
 		done:    make(chan string),
 	}
 
 	job := MapReduceJob{
-		MapReducePipeline: u,
+		MapReducePipeline: pipe,
 		Inputs:            FileLineInputReader{[]string{"testdata/pandp-1", "testdata/pandp-2", "testdata/pandp-3", "testdata/pandp-4", "testdata/pandp-5"}},
 		Outputs:           FileLineOutputWriter{[]string{"test1.out", "test2.out"}},
 		UrlPrefix:         "/mr/test",
 		OnCompleteUrl:     "/done",
 	}
+
+	return job
+}
+
+func (mrt *MapreduceTests) TestReducePanic(c *ck.C) {
+	u := testReducePanic{}
+	job := mrt.setup(&u, &u.SimpleTasks)
 
 	_, err := Run(mrt.Context, job)
 	c.Check(err, ck.Equals, nil)
