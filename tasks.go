@@ -5,6 +5,8 @@ import (
 	"appengine/datastore"
 	"appengine/taskqueue"
 	"encoding/json"
+	"fmt"
+	"net/http"
 	"net/url"
 	"time"
 )
@@ -258,4 +260,35 @@ func (q AppengineTaskQueue) PostStatus(c appengine.Context, taskUrl string) erro
 	task := taskqueue.NewPOSTTask(taskUrl, url.Values{})
 	_, err := taskqueue.Add(c, task, q.StatusQueueName)
 	return err
+}
+
+func parseCompleteRequest(c appengine.Context, pipeline MapReducePipeline, taskKey *datastore.Key, r *http.Request) (*datastore.Key, error) {
+	var finalErr error = nil
+
+	status := r.FormValue("status")
+	switch status {
+	case "":
+		finalErr = fmt.Errorf("missing status for request %s", r)
+	case "done":
+	case "error":
+		finalErr = fmt.Errorf("failed task: %s", r.FormValue("error"))
+	default:
+		finalErr = fmt.Errorf("unknown job status %s", status)
+	}
+
+	jobKey := taskKey.Parent()
+
+	if finalErr != nil {
+		c.Errorf("bad status from task: %s", finalErr.Error())
+		prevJob, _ := updateJobStage(c, jobKey, StageFailed)
+		if prevJob.Stage == StageFailed {
+			return nil, finalErr
+		}
+
+		pipeline.PostStatus(c, fmt.Sprintf("%s?status=error;error=%s;id=%d", prevJob.OnCompleteUrl,
+			url.QueryEscape(finalErr.Error()), jobKey.IntID()))
+		return nil, finalErr
+	}
+
+	return jobKey, nil
 }

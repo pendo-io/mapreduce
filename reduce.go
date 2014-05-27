@@ -10,29 +10,8 @@ import (
 )
 
 func ReduceCompleteTask(c appengine.Context, pipeline MapReducePipeline, taskKey *datastore.Key, r *http.Request) {
-	var finalErr error = nil
-
-	status := r.FormValue("status")
-	switch status {
-	case "":
-		finalErr = fmt.Errorf("missing status for task %s", r)
-	case "done":
-	case "error":
-		finalErr = fmt.Errorf("failed task: %s", r.FormValue("error"))
-	default:
-		finalErr = fmt.Errorf("unknown task status %s", status)
-	}
-
-	jobKey := taskKey.Parent()
-
-	if finalErr != nil {
-		c.Errorf("bad status from task: %s", finalErr.Error())
-		prevJob, _ := updateJobStage(c, jobKey, StageFailed)
-		if prevJob.Stage == StageFailed {
-			return
-		}
-
-		pipeline.PostTask(c, fmt.Sprintf("/reducecomplete?taskKey=%s;status=error;error=%s", taskKey.Encode(), url.QueryEscape(finalErr.Error())))
+	jobKey, err := parseCompleteRequest(c, pipeline, taskKey, r)
+	if err != nil {
 		return
 	}
 
@@ -48,7 +27,6 @@ func ReduceCompleteTask(c appengine.Context, pipeline MapReducePipeline, taskKey
 
 	successUrl := fmt.Sprintf("%s?status=%s;id=%d", job.OnCompleteUrl, TaskStatusDone, jobKey.IntID())
 	pipeline.PostStatus(c, successUrl)
-
 }
 
 func ReduceTask(c appengine.Context, baseUrl string, mr MapReducePipeline, taskKey *datastore.Key, r *http.Request) {
@@ -58,9 +36,9 @@ func ReduceTask(c appengine.Context, baseUrl string, mr MapReducePipeline, taskK
 
 	defer func() {
 		if r := recover(); r != nil {
-			c.Criticalf("panic inside of map task %s", taskKey.Encode())
+			c.Criticalf("panic inside of reduce task %s", taskKey.Encode())
 			errMsg := fmt.Sprintf("%s", r)
-			mr.PostTask(c, fmt.Sprintf("%s/mapcomplete?taskKey=%s;status=error;error=%s", baseUrl, taskKey.Encode(), url.QueryEscape(errMsg)))
+			mr.PostTask(c, fmt.Sprintf("%s/reducecomplete?taskKey=%s;status=error;error=%s", baseUrl, taskKey.Encode(), url.QueryEscape(errMsg)))
 		}
 	}()
 

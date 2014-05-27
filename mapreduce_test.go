@@ -137,7 +137,7 @@ func (mrt *MapreduceTests) TestMapPanic(c *ck.C) {
 	c.Check(err, ck.IsNil)
 
 	c.Check(fields["status"][0], ck.Equals, "error")
-	c.Check(fields["error"][0], ck.Equals, "failed map: I prefer not to enumerate")
+	c.Check(fields["error"][0], ck.Equals, "failed task: I prefer not to enumerate")
 }
 
 type testReducePanic struct {
@@ -179,5 +179,5 @@ func (mrt *MapreduceTests) TestReducePanic(c *ck.C) {
 	c.Check(err, ck.IsNil)
 
 	c.Check(fields["status"][0], ck.Equals, "error")
-	c.Check(fields["error"][0], ck.Equals, "failed map: Reduce panic")
+	c.Check(fields["error"][0], ck.Equals, "failed task: Reduce panic")
 }
