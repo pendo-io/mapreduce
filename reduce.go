@@ -79,9 +79,8 @@ func ReduceFunc(c appengine.Context, mr MapReducePipeline, writer SingleOutputWr
 
 	inputCount := len(shardNames)
 
-	items := shardMappedDataList{
-		feeders: make([]IntermediateStorageIterator, 0, inputCount),
-		data:    make([]MappedData, 0, inputCount),
+	merger := mappedDataMerger{
+		items:   make([]mappedDataMergeItem, 0, inputCount),
 		compare: mr,
 	}
 
@@ -98,26 +97,25 @@ func ReduceFunc(c appengine.Context, mr MapReducePipeline, writer SingleOutputWr
 			continue
 		}
 
-		items.feeders = append(items.feeders, iterator)
-		items.data = append(items.data, firstItem)
+		merger.items = append(merger.items, mappedDataMergeItem{iterator, firstItem})
 	}
 
-	if len(items.data) == 0 {
+	if len(merger.items) == 0 {
 		return nil
 	}
 
 	values := make([]interface{}, 1)
 	var key interface{}
 
-	if first, err := items.next(); err != nil {
+	if first, err := merger.next(); err != nil {
 		return err
 	} else {
 		key = first.Key
 		values[0] = first.Value
 	}
 
-	for len(items.data) > 0 {
-		item, err := items.next()
+	for len(merger.items) > 0 {
+		item, err := merger.next()
 		if err != nil {
 			return err
 		}

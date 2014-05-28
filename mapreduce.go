@@ -59,44 +59,36 @@ func (a mappedDataList) Len() int           { return len(a.data) }
 func (a mappedDataList) Swap(i, j int)      { a.data[i], a.data[j] = a.data[j], a.data[i] }
 func (a mappedDataList) Less(i, j int) bool { return a.compare.Less(a.data[i].Key, a.data[j].Key) }
 
-// this should be a priority queue instead of continually resorting
-type shardMappedDataList struct {
-	feeders []IntermediateStorageIterator
-	data    []MappedData
+type mappedDataMergeItem struct {
+	iterator IntermediateStorageIterator
+	datum    MappedData
+}
+
+type mappedDataMerger struct {
+	items   []mappedDataMergeItem
 	compare KeyHandler
 }
 
-func (a shardMappedDataList) Len() int           { return len(a.data) }
-func (a shardMappedDataList) Less(i, j int) bool { return a.compare.Less(a.data[i].Key, a.data[j].Key) }
-func (a shardMappedDataList) Swap(i, j int) {
-	a.data[i], a.data[j] = a.data[j], a.data[i]
-	a.feeders[i], a.feeders[j] = a.feeders[j], a.feeders[i]
+func (a mappedDataMerger) Len() int { return len(a.items) }
+func (a mappedDataMerger) Less(i, j int) bool {
+	return a.compare.Less(a.items[i].datum.Key, a.items[j].datum.Key)
 }
+func (a mappedDataMerger) Swap(i, j int) { a.items[i], a.items[j] = a.items[j], a.items[i] }
 
-func (s *shardMappedDataList) next() (MappedData, error) {
+func (s *mappedDataMerger) next() (MappedData, error) {
 	sort.Sort(s)
-	item := s.data[0]
-	if len(s.data) != len(s.feeders) {
-		panic("ACK")
-	}
+	item := s.items[0].datum
 
-	if newItem, exists, err := s.feeders[0].Next(); err != nil {
+	if newItem, exists, err := s.items[0].iterator.Next(); err != nil {
 		return MappedData{}, err
 	} else if exists {
-		s.data[0] = newItem
-	} else if len(s.data) == 1 {
-		s.data = s.data[0:0]
-		s.feeders = s.feeders[0:0]
+		s.items[0].datum = newItem
+	} else if len(s.items) == 1 {
+		s.items = s.items[0:0]
 	} else {
-		last := len(s.data) - 1
-		s.data[0] = s.data[last]
-		s.feeders[0] = s.feeders[last]
-		s.data = s.data[0:last]
-		s.feeders = s.feeders[0:last]
-	}
-
-	if len(s.data) != len(s.feeders) {
-		panic("ACK")
+		last := len(s.items) - 1
+		s.items[0] = s.items[last]
+		s.items = s.items[0:last]
 	}
 
 	return item, nil
