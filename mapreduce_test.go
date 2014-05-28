@@ -16,7 +16,7 @@ type testUniqueWordCount struct {
 	FileLineOutputWriter
 	StringKeyHandler
 	IntValueHandler
-	BlobIntermediateStorage
+	MemoryIntermediateStorage
 	SimpleTasks
 
 	lineCount int

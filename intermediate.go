@@ -15,6 +15,8 @@ type KeyValueHandler interface {
 }
 
 type IntermediateStorageIterator interface {
+	// Returns mapped data item, a bool saying if it's valid, and an error if one occurred
+	// probably cause use error = EOF instead, but we don't
 	Next() (MappedData, bool, error)
 }
 
@@ -42,19 +44,24 @@ type MemoryIntermediateStorage struct {
 	items [][]MappedData
 }
 
-func (m *MemoryIntermediateStorage) Store(items []MappedData, handler KeyValueHandler) (string, error) {
+func (m *MemoryIntermediateStorage) Store(c appengine.Context, items []MappedData, handler KeyValueHandler) (string, error) {
 	name := fmt.Sprintf("%d", len(m.items))
 	m.items = append(m.items, items)
 	return name, nil
 }
 
-func (m *MemoryIntermediateStorage) Iterator(name string, handler KeyValueHandler) (IntermediateStorageIterator, error) {
+func (m *MemoryIntermediateStorage) Iterator(c appengine.Context, name string, handler KeyValueHandler) (IntermediateStorageIterator, error) {
 	index, err := strconv.ParseInt(name, 10, 64)
 	if err != nil {
 		return nil, err
 	}
 
 	return &ArrayIterator{m.items[index], 0}, nil
+}
+
+func (m *MemoryIntermediateStorage) RemoveIntermediate(c appengine.Context, name string) error {
+	// eh. whatever.
+	return nil
 }
 
 type fileJsonHolder struct {
