@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
 )
 
 type testUniqueWordCount struct {
@@ -24,27 +25,35 @@ type testUniqueWordCount struct {
 type SimpleTasks struct {
 	handler http.Handler
 	done    chan string
+	group   sync.WaitGroup
 }
 
-func (st SimpleTasks) PostTask(c appengine.Context, url string) error {
+func (st *SimpleTasks) PostTask(c appengine.Context, url string) error {
 	if strings.HasPrefix(url, "/done") {
 		st.done <- url
 		return nil
 	}
 
 	req, _ := http.NewRequest("POST", url, nil)
+	st.group.Add(1)
 	go func() {
+		defer st.group.Done()
 		w := httptest.NewRecorder()
 		st.handler.ServeHTTP(w, req)
 		if w.Code != 200 {
 			fmt.Printf("Got bad response code %s for url %s\n", w.Code, url)
 		}
 	}()
+
 	return nil
 }
 
-func (st SimpleTasks) PostStatus(c appengine.Context, url string) error {
+func (st *SimpleTasks) PostStatus(c appengine.Context, url string) error {
 	return st.PostTask(c, url)
+}
+
+func (st *SimpleTasks) gather() {
+	st.group.Wait()
 }
 
 func (mrt *MapreduceTests) setup(pipe MapReducePipeline, tasks *SimpleTasks) MapReduceJob {
@@ -91,6 +100,7 @@ func (uwc testUniqueWordCount) Reduce(key interface{}, values []interface{}, sta
 func (mrt *MapreduceTests) TestWordCount(c *ck.C) {
 	u := testUniqueWordCount{}
 	job := mrt.setup(&u, &u.SimpleTasks)
+	defer u.SimpleTasks.gather()
 
 	_, err := Run(mrt.Context, job)
 	c.Assert(err, ck.Equals, nil)
@@ -118,6 +128,7 @@ func (tmp testMapPanic) Map(item interface{}, status StatusUpdateFunc) ([]Mapped
 func (mrt *MapreduceTests) TestMapPanic(c *ck.C) {
 	u := testMapPanic{}
 	job := mrt.setup(&u, &u.SimpleTasks)
+	defer u.SimpleTasks.gather()
 
 	_, err := Run(mrt.Context, job)
 	c.Check(err, ck.Equals, nil)
@@ -152,6 +163,7 @@ func (tmp testMapError) Map(item interface{}, status StatusUpdateFunc) ([]Mapped
 func (mrt *MapreduceTests) TestMapError(c *ck.C) {
 	u := testMapError{}
 	job := mrt.setup(&u, &u.SimpleTasks)
+	defer u.SimpleTasks.gather()
 
 	_, err := Run(mrt.Context, job)
 	c.Check(err, ck.Equals, nil)
@@ -182,6 +194,7 @@ func (trp testReducePanic) Reduce(key interface{}, values []interface{}, status 
 func (mrt *MapreduceTests) TestReducePanic(c *ck.C) {
 	u := testReducePanic{}
 	job := mrt.setup(&u, &u.SimpleTasks)
+	defer u.SimpleTasks.gather()
 
 	_, err := Run(mrt.Context, job)
 	c.Check(err, ck.Equals, nil)
@@ -212,6 +225,7 @@ func (trp testReduceError) Reduce(key interface{}, values []interface{}, status 
 func (mrt *MapreduceTests) TestReduceError(c *ck.C) {
 	u := testReduceError{}
 	job := mrt.setup(&u, &u.SimpleTasks)
+	defer u.SimpleTasks.gather()
 
 	_, err := Run(mrt.Context, job)
 	c.Check(err, ck.Equals, nil)
