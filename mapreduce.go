@@ -3,10 +3,10 @@ package mapreduce
 import (
 	"appengine"
 	"appengine/datastore"
+	"container/heap"
 	"fmt"
 	"net/http"
 	"net/url"
-	"sort"
 	"strings"
 )
 
@@ -67,31 +67,36 @@ type mappedDataMergeItem struct {
 type mappedDataMerger struct {
 	items   []mappedDataMergeItem
 	compare KeyHandler
+	inited  bool
 }
 
-func (a mappedDataMerger) Len() int { return len(a.items) }
-func (a mappedDataMerger) Less(i, j int) bool {
+func (a *mappedDataMerger) Len() int { return len(a.items) }
+func (a *mappedDataMerger) Less(i, j int) bool {
 	return a.compare.Less(a.items[i].datum.Key, a.items[j].datum.Key)
 }
-func (a mappedDataMerger) Swap(i, j int) { a.items[i], a.items[j] = a.items[j], a.items[i] }
+func (a *mappedDataMerger) Swap(i, j int)      { a.items[i], a.items[j] = a.items[j], a.items[i] }
+func (a *mappedDataMerger) Push(x interface{}) { a.items = append(a.items, x.(mappedDataMergeItem)) }
+func (a *mappedDataMerger) Pop() interface{} {
+	x := a.items[len(a.items)-1]
+	a.items = a.items[0 : len(a.items)-1]
+	return x
+}
 
 func (s *mappedDataMerger) next() (MappedData, error) {
-	sort.Sort(s)
-	item := s.items[0].datum
-
-	if newItem, exists, err := s.items[0].iterator.Next(); err != nil {
-		return MappedData{}, err
-	} else if exists {
-		s.items[0].datum = newItem
-	} else if len(s.items) == 1 {
-		s.items = s.items[0:0]
-	} else {
-		last := len(s.items) - 1
-		s.items[0] = s.items[last]
-		s.items = s.items[0:last]
+	if !s.inited {
+		heap.Init(s)
+		s.inited = true
 	}
 
-	return item, nil
+	item := heap.Pop(s).(mappedDataMergeItem)
+
+	if newItem, exists, err := item.iterator.Next(); err != nil {
+		return MappedData{}, err
+	} else if exists {
+		heap.Push(s, mappedDataMergeItem{item.iterator, newItem})
+	}
+
+	return item.datum, nil
 }
 
 func Run(c appengine.Context, job MapReduceJob) (int64, error) {
