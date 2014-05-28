@@ -11,8 +11,11 @@ import (
 )
 
 func reduceCompleteTask(c appengine.Context, pipeline MapReducePipeline, taskKey *datastore.Key, r *http.Request) {
-	jobKey, err := parseCompleteRequest(c, pipeline, taskKey, r)
+	jobKey, complete, err := parseCompleteRequest(c, pipeline, taskKey, r)
 	if err != nil {
+		c.Errorf("failed reduce task %s: %s\n", taskKey.Encode(), err)
+		return
+	} else if complete {
 		return
 	}
 
@@ -67,8 +70,14 @@ func reduceTask(c appengine.Context, baseUrl string, mr MapReducePipeline, taskK
 		updateTask(c, taskKey, TaskStatusDone, "", writer.ToName())
 		mr.PostStatus(c, fmt.Sprintf("%s/reducecomplete?taskKey=%s;status=done", baseUrl, taskKey.Encode()))
 	} else {
+		errorType := "error"
+		if _, ok := finalError.(tryAgainError); ok {
+			// wasn't fatal, go for it
+			errorType = "again"
+		}
+
 		updateTask(c, taskKey, TaskStatusFailed, finalError.Error(), nil)
-		mr.PostStatus(c, fmt.Sprintf("%s/reducecomplete?taskKey=%s;status=error;error=%s", baseUrl, taskKey.Encode(), url.QueryEscape(finalError.Error())))
+		mr.PostStatus(c, fmt.Sprintf("%s/reducecomplete?taskKey=%s;status=%s;error=%s", baseUrl, taskKey.Encode(), errorType, url.QueryEscape(finalError.Error())))
 	}
 
 	writer.Close(c)
@@ -126,6 +135,11 @@ func ReduceFunc(c appengine.Context, mr MapReducePipeline, writer SingleOutputWr
 		}
 
 		if result, err := mr.Reduce(key, values, statusFunc); err != nil {
+			if _, ok := err.(FatalError); ok {
+				err = err.(FatalError).err
+			} else {
+				err = tryAgainError{err}
+			}
 			return err
 		} else if err := writer.Write(result); err != nil {
 			return err

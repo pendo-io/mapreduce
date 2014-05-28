@@ -13,8 +13,11 @@ import (
 )
 
 func mapCompleteTask(c appengine.Context, pipeline MapReducePipeline, taskKey *datastore.Key, r *http.Request) {
-	jobKey, err := parseCompleteRequest(c, pipeline, taskKey, r)
+	jobKey, complete, err := parseCompleteRequest(c, pipeline, taskKey, r)
 	if err != nil {
+		c.Errorf("failed map task %s: %s\n", taskKey.Encode(), err)
+		return
+	} else if complete {
 		return
 	}
 
@@ -131,8 +134,14 @@ func mapTask(c appengine.Context, baseUrl string, mr MapReducePipeline, taskKey 
 		}
 		mr.PostTask(c, fmt.Sprintf("%s/mapcomplete?taskKey=%s;status=done", baseUrl, taskKey.Encode()))
 	} else {
+		errorType := "error"
+		if _, ok := finalErr.(tryAgainError); ok {
+			// wasn't fatal, go for it
+			errorType = "again"
+		}
+
 		updateTask(c, taskKey, TaskStatusFailed, finalErr.Error(), nil)
-		mr.PostTask(c, fmt.Sprintf("%s/mapcomplete?taskKey=%s;status=error;error=%s", baseUrl, taskKey.Encode(), url.QueryEscape(finalErr.Error())))
+		mr.PostTask(c, fmt.Sprintf("%s/mapcomplete?taskKey=%s;status=%s;error=%s", baseUrl, taskKey.Encode(), errorType, url.QueryEscape(finalErr.Error())))
 	}
 }
 
@@ -148,6 +157,12 @@ func mapperFunc(c appengine.Context, mr MapReducePipeline, reader SingleInputRea
 		itemList, err := mr.Map(item, statusFunc)
 
 		if err != nil {
+			if _, ok := err.(FatalError); ok {
+				err = err.(FatalError).err
+			} else {
+				err = tryAgainError{err}
+			}
+
 			return nil, err
 		}
 

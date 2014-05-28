@@ -69,7 +69,12 @@ const (
 const JobEntity = "MapReduceJob"
 const TaskEntity = "MapReduceTask"
 
-func createJob(c appengine.Context, urlPrefix string, writerNames []string, onCompleteUrl string) (*datastore.Key, error) {
+func createJob(c appengine.Context, urlPrefix string, writerNames []string, onCompleteUrl string, retryCount int) (*datastore.Key, error) {
+	if retryCount == 0 {
+		// default
+		retryCount = 3
+	}
+
 	key := datastore.NewKey(c, JobEntity, "", 0, nil)
 	job := JobInfo{
 		UrlPrefix:     urlPrefix,
@@ -77,6 +82,7 @@ func createJob(c appengine.Context, urlPrefix string, writerNames []string, onCo
 		UpdatedAt:     time.Now(),
 		OnCompleteUrl: onCompleteUrl,
 		WriterNames:   writerNames,
+		RetryCount:    retryCount,
 	}
 
 	return datastore.Put(c, key, &job)
@@ -267,7 +273,28 @@ func (q AppengineTaskQueue) PostStatus(c appengine.Context, taskUrl string) erro
 	return err
 }
 
-func parseCompleteRequest(c appengine.Context, pipeline MapReducePipeline, taskKey *datastore.Key, r *http.Request) (*datastore.Key, error) {
+func retryTask(c appengine.Context, pipeline MapReducePipeline, taskKey *datastore.Key) error {
+	var task JobTask
+	var job JobInfo
+	if err := datastore.Get(c, taskKey, &task); err != nil {
+		return err
+	} else if err := datastore.Get(c, taskKey.Parent(), &job); err != nil {
+		return err
+	} else if (task.Retries + 1) >= job.RetryCount {
+		return fmt.Errorf("maxium retries exceeded")
+	}
+
+	task.Retries++
+	if _, err := datastore.Put(c, taskKey, &task); err != nil {
+		return err
+	} else if err := pipeline.PostTask(c, task.Url); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func parseCompleteRequest(c appengine.Context, pipeline MapReducePipeline, taskKey *datastore.Key, r *http.Request) (*datastore.Key, bool, error) {
 	var finalErr error = nil
 
 	status := r.FormValue("status")
@@ -275,6 +302,12 @@ func parseCompleteRequest(c appengine.Context, pipeline MapReducePipeline, taskK
 	switch status {
 	case "":
 		finalErr = fmt.Errorf("missing status for request %s", r)
+	case "again":
+		finalErr = retryTask(c, pipeline, taskKey)
+		if finalErr == nil {
+			return nil, true, nil
+		}
+		finalErr = fmt.Errorf("error retrying: %s (task failed due to: %s)", finalErr, r.FormValue("error"))
 	case "error":
 		finalErr = fmt.Errorf("failed task: %s", r.FormValue("error"))
 	case "done":
@@ -288,13 +321,13 @@ func parseCompleteRequest(c appengine.Context, pipeline MapReducePipeline, taskK
 		c.Errorf("bad status from task: %s", finalErr.Error())
 		prevJob, _ := updateJobStage(c, jobKey, StageFailed)
 		if prevJob.Stage == StageFailed {
-			return nil, finalErr
+			return nil, false, finalErr
 		}
 
 		pipeline.PostStatus(c, fmt.Sprintf("%s?status=error;error=%s;id=%d", prevJob.OnCompleteUrl,
 			url.QueryEscape(finalErr.Error()), jobKey.IntID()))
-		return nil, finalErr
+		return nil, false, finalErr
 	}
 
-	return jobKey, nil
+	return jobKey, false, nil
 }

@@ -36,6 +36,17 @@ type Reducer interface {
 	Reduce(key interface{}, values []interface{}, statusUpdate StatusUpdateFunc) (result interface{}, err error)
 }
 
+// FatalError wraps an error. If Map or Reduce returns a FatalError the task will not be retried
+type FatalError struct{ err error }
+
+func (fe FatalError) Error() string { return fe.err.Error() }
+
+// tryAgainError is the inverse of a fatal error; we rework Map() and Reduce() in terms of tryAgainError because
+// it makes our internal errors not wrapped at all, making life simpler
+type tryAgainError struct{ err error }
+
+func (tae tryAgainError) Error() string { return tae.err.Error() }
+
 // MapReducePipeline defines the complete pipeline for a map reduce job (but not the job itself).
 // No per-job information is available for the pipeline functions other than what gets passed in
 // via the various interfaces.
@@ -72,7 +83,8 @@ type MapReduceJob struct {
 	OnCompleteUrl string
 
 	// The number of times individual map/reduce tasks should be retried. Tasks that
-	// return errors which are not of type AgainError are not retried.
+	// return errors which are of type FatalError are not retried (defaults to 3, 1
+	// means it will never retry).
 	RetryCount int
 }
 
@@ -133,11 +145,6 @@ func Run(c appengine.Context, job MapReduceJob) (int64, error) {
 		return 0, fmt.Errorf("no input readers")
 	}
 
-	if job.RetryCount == 0 {
-		// default
-		job.RetryCount = 3
-	}
-
 	writerNames, err := job.Outputs.WriterNames(c)
 	if err != nil {
 		return 0, err
@@ -147,7 +154,7 @@ func Run(c appengine.Context, job MapReduceJob) (int64, error) {
 
 	reducerCount := len(writerNames)
 
-	jobKey, err := createJob(c, job.UrlPrefix, writerNames, job.OnCompleteUrl)
+	jobKey, err := createJob(c, job.UrlPrefix, writerNames, job.OnCompleteUrl, job.RetryCount)
 	if err != nil {
 		return 0, err
 	}

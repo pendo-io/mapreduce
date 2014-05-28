@@ -146,6 +146,7 @@ func (mrt *MapreduceTests) TestMapPanic(c *ck.C) {
 
 type testMapError struct {
 	testUniqueWordCount
+	fatal bool
 }
 
 func (tmp testMapError) Map(item interface{}, status StatusUpdateFunc) ([]MappedData, error) {
@@ -153,7 +154,12 @@ func (tmp testMapError) Map(item interface{}, status StatusUpdateFunc) ([]Mapped
 	for _, data := range mapped {
 		// this occurs exactly once, in input 2
 		if data.Key == "enumeration" {
-			return nil, fmt.Errorf("map had an error")
+			err := fmt.Errorf("map had an error")
+			if tmp.fatal {
+				err = FatalError{err}
+			}
+			print("----- error here", "\n")
+			return nil, err
 		}
 	}
 
@@ -175,6 +181,27 @@ func (mrt *MapreduceTests) TestMapError(c *ck.C) {
 	fields := url.Query()
 	c.Check(err, ck.IsNil)
 
+	print("result ", resultUrl, "\n")
+	c.Check(fields["status"][0], ck.Equals, "error")
+	c.Check(fields["error"][0], ck.Equals, "error retrying: maxium retries exceeded (task failed due to: map had an error)")
+}
+
+func (mrt *MapreduceTests) TestMapFatal(c *ck.C) {
+	u := testMapError{fatal: true}
+	job := mrt.setup(&u, &u.SimpleTasks)
+	defer u.SimpleTasks.gather()
+
+	_, err := Run(mrt.Context, job)
+	c.Check(err, ck.Equals, nil)
+
+	resultUrl := <-u.SimpleTasks.done
+
+	url, err := url.Parse(resultUrl)
+	c.Check(err, ck.IsNil)
+	fields := url.Query()
+	c.Check(err, ck.IsNil)
+
+	print("result ", resultUrl, "\n")
 	c.Check(fields["status"][0], ck.Equals, "error")
 	c.Check(fields["error"][0], ck.Equals, "failed task: map had an error")
 }
@@ -212,11 +239,21 @@ func (mrt *MapreduceTests) TestReducePanic(c *ck.C) {
 
 type testReduceError struct {
 	testUniqueWordCount
+	fatal            bool
+	count            int
+	succeedThreshold int
 }
 
-func (trp testReduceError) Reduce(key interface{}, values []interface{}, status StatusUpdateFunc) (result interface{}, err error) {
-	if key.(string) == "enumeration" {
-		return nil, fmt.Errorf("reduce had an error")
+func (trp *testReduceError) Reduce(key interface{}, values []interface{}, status StatusUpdateFunc) (result interface{}, err error) {
+	trp.count++
+
+	if (trp.count < trp.succeedThreshold || trp.succeedThreshold == 0) && key.(string) == "enumeration" {
+		err := fmt.Errorf("reduce had an error")
+
+		if trp.fatal {
+			err = FatalError{err}
+		}
+		return nil, err
 	}
 
 	return trp.testUniqueWordCount.Reduce(key, values, status)
@@ -224,6 +261,36 @@ func (trp testReduceError) Reduce(key interface{}, values []interface{}, status 
 
 func (mrt *MapreduceTests) TestReduceError(c *ck.C) {
 	u := testReduceError{}
+	job := mrt.setup(&u, &u.SimpleTasks)
+	defer u.SimpleTasks.gather()
+
+	_, err := Run(mrt.Context, job)
+	c.Check(err, ck.Equals, nil)
+
+	resultUrl := <-u.SimpleTasks.done
+
+	url, err := url.Parse(resultUrl)
+	c.Check(err, ck.IsNil)
+	fields := url.Query()
+	c.Check(err, ck.IsNil)
+
+	c.Check(fields["status"][0], ck.Equals, "error")
+	c.Check(fields["error"][0], ck.Equals, "error retrying: maxium retries exceeded (task failed due to: reduce had an error)")
+
+	// see if we handle retries properly
+	v := testReduceError{succeedThreshold: u.count / 2}
+	job = mrt.setup(&v, &v.SimpleTasks)
+	defer v.SimpleTasks.gather()
+
+	_, err = Run(mrt.Context, job)
+	c.Check(err, ck.Equals, nil)
+
+	resultUrl = <-v.SimpleTasks.done
+	c.Check(strings.Index(resultUrl, "status=done"), ck.Equals, 6)
+}
+
+func (mrt *MapreduceTests) TestReduceFatal(c *ck.C) {
+	u := testReduceError{fatal: true}
 	job := mrt.setup(&u, &u.SimpleTasks)
 	defer u.SimpleTasks.gather()
 
