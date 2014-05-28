@@ -20,6 +20,8 @@ type IntermediateStorageIterator interface {
 	Next() (MappedData, bool, error)
 }
 
+// IntermediateStorage defines how intermediare results are saved and read. If keys need to be serialized
+// KeyValueHandler.Load and KeyValueHandler.Save must be used.
 type IntermediateStorage interface {
 	Store(c appengine.Context, items []MappedData, handler KeyValueHandler) (string, error)
 	Iterator(c appengine.Context, name string, handler KeyValueHandler) (IntermediateStorageIterator, error)
@@ -40,6 +42,8 @@ func (sf *ArrayIterator) Next() (MappedData, bool, error) {
 	return sf.data[sf.nextIndex-1], true, nil
 }
 
+// MemoryIntermediateStorage is a simple IntermediateStorage implementation which keeps objects in memory
+// with no encoding. It only works in test environments.
 type MemoryIntermediateStorage struct {
 	items [][]MappedData
 }

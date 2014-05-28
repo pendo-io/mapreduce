@@ -1,3 +1,4 @@
+// Package mapreduce provides a mapreduce pipeline for Google's appengine environment
 package mapreduce
 
 import (
@@ -10,44 +11,69 @@ import (
 	"strings"
 )
 
+// MappedData items are key/value pairs returned from the Map stage. The items are rearranged
+// by the shuffle, and (Key, []Value) pairs are passed into the shuffle. KeyHandler interfaces
+// provide the operations on MappedData items which are needed by the pipeline, and ValueHandler
+// interfaces provide serialization operatons for the values.
 type MappedData struct {
 	Key   interface{}
 	Value interface{}
 }
 
+// StatusUpdateFunc functions are passed into Map and Reduce handlers to allow those handlers
+// to post arbitrary status messages which are stored in the datastore
 type StatusUpdateFunc func(format string, paramList ...interface{})
 
+// Mapper defines a map function; it is passed an item from the input and returns
+// a list of mapped items.
 type Mapper interface {
 	Map(item interface{}, statusUpdate StatusUpdateFunc) ([]MappedData, error)
 }
 
+// Reducer defines the reduce function; it is called once for each key and is given a list
+// of all of the values for that key.
 type Reducer interface {
 	Reduce(key interface{}, values []interface{}, statusUpdate StatusUpdateFunc) (result interface{}, err error)
 }
 
-type Sharder interface {
-	ShardCount() int
-	ShardKey(key interface{}) int
-}
-
+// MapReducePipeline defines the complete pipeline for a map reduce job (but not the job itself).
+// No per-job information is available for the pipeline functions other than what gets passed in
+// via the various interfaces.
 type MapReducePipeline interface {
+	// The basic pipeline of read, map, shuffle, reduce, save
 	InputReader
 	Mapper
+	IntermediateStorage
 	Reducer
 	OutputWriter
+
+	// Serialization and sorting primatives for keys and values
 	KeyHandler
 	ValueHandler
-	IntermediateStorage
+
 	TaskInterface
 }
 
+// MapReduceJob defines a complete map reduce job, which is the pipeline and the parameters the job
+// needs. The types for Inputs and Outputs must match the types for the InputReader and OutputWriter
+// in the pipeline.
 type MapReduceJob struct {
 	MapReducePipeline
-	Inputs        InputReader
-	Outputs       OutputWriter
-	UrlPrefix     string
+	Inputs  InputReader
+	Outputs OutputWriter
+
+	// The UrlPrefix is the base url path used for mapreduce jobs posted into
+	// task queues, and must match the baseUrl passed into MapReduceHandler()
+	UrlPrefix string
+
+	// The url to post to when a job is completed. The full url will include
+	// multiple query parameters, including status=(done|error) and id=(jobId). If
+	// an error occurred the error parameter will also be displayed.
 	OnCompleteUrl string
-	RetryCount    int
+
+	// The number of times individual map/reduce tasks should be retried. Tasks that
+	// return errors which are not of type AgainError are not retried.
+	RetryCount int
 }
 
 type mappedDataList struct {
@@ -168,8 +194,12 @@ type urlHandler struct {
 	getContext func(r *http.Request) appengine.Context
 }
 
+// MapReduceHandler returns an http.Handler which is responsible for all of the
+// urls pertaining to the mapreduce job. The baseUrl acts as the name for the
+// type of job being run.
 func MapReduceHandler(baseUrl string, pipeline MapReducePipeline,
 	getContext func(r *http.Request) appengine.Context) http.Handler {
+
 	return urlHandler{pipeline, baseUrl, getContext}
 }
 
@@ -189,13 +219,13 @@ func (h urlHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	c := h.getContext(r)
 
 	if strings.HasSuffix(r.URL.Path, "/reduce") {
-		ReduceTask(c, h.baseUrl, h.pipeline, taskKey, r)
+		reduceTask(c, h.baseUrl, h.pipeline, taskKey, r)
 	} else if strings.HasSuffix(r.URL.Path, "/reducecomplete") {
-		ReduceCompleteTask(c, h.pipeline, taskKey, r)
+		reduceCompleteTask(c, h.pipeline, taskKey, r)
 	} else if strings.HasSuffix(r.URL.Path, "/map") {
-		MapTask(c, h.baseUrl, h.pipeline, taskKey, r)
+		mapTask(c, h.baseUrl, h.pipeline, taskKey, r)
 	} else if strings.HasSuffix(r.URL.Path, "/mapcomplete") {
-		MapCompleteTask(c, h.pipeline, taskKey, r)
+		mapCompleteTask(c, h.pipeline, taskKey, r)
 	} else if strings.HasSuffix(r.URL.Path, "/mapstatus") ||
 		strings.HasSuffix(r.URL.Path, "/reducestatus") {
 

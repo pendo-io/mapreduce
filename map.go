@@ -12,7 +12,7 @@ import (
 	"strconv"
 )
 
-func MapCompleteTask(c appengine.Context, pipeline MapReducePipeline, taskKey *datastore.Key, r *http.Request) {
+func mapCompleteTask(c appengine.Context, pipeline MapReducePipeline, taskKey *datastore.Key, r *http.Request) {
 	jobKey, err := parseCompleteRequest(c, pipeline, taskKey, r)
 	if err != nil {
 		return
@@ -98,7 +98,7 @@ func MapCompleteTask(c appengine.Context, pipeline MapReducePipeline, taskKey *d
 	}
 }
 
-func MapTask(c appengine.Context, baseUrl string, mr MapReducePipeline, taskKey *datastore.Key, r *http.Request) {
+func mapTask(c appengine.Context, baseUrl string, mr MapReducePipeline, taskKey *datastore.Key, r *http.Request) {
 	var finalErr error
 	var shardNames map[string]int
 
@@ -121,7 +121,7 @@ func MapTask(c appengine.Context, baseUrl string, mr MapReducePipeline, taskKey 
 	} else if reader, err := mr.ReaderFromName(readerName); err != nil {
 		finalErr = fmt.Errorf("error making reader: %s", err)
 	} else {
-		shardNames, finalErr = MapperFunc(c, mr, reader, int(shardCount),
+		shardNames, finalErr = mapperFunc(c, mr, reader, int(shardCount),
 			makeStatusUpdateFunc(c, mr, fmt.Sprintf("%s/mapstatus", baseUrl), taskKey.Encode()))
 	}
 
@@ -136,7 +136,7 @@ func MapTask(c appengine.Context, baseUrl string, mr MapReducePipeline, taskKey 
 	}
 }
 
-func MapperFunc(c appengine.Context, mr MapReducePipeline, reader SingleInputReader, shardCount int,
+func mapperFunc(c appengine.Context, mr MapReducePipeline, reader SingleInputReader, shardCount int,
 	statusFunc StatusUpdateFunc) (map[string]int, error) {
 
 	dataSets := make([]mappedDataList, shardCount)

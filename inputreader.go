@@ -7,6 +7,10 @@ import (
 	"os"
 )
 
+// InputReader is responsible for providing unique names for each of the input
+// sources for a job, and creating individual SingleInputReader objects from
+// those unique names. The number of unique names for the inputs determines the
+// number of map tasks
 type InputReader interface {
 	// ReaderNames() returns a list of reader instance names;
 	ReaderNames() ([]string, error)

@@ -52,6 +52,8 @@ type JobInfo struct {
 	WriterNames   []string `datastore:",noindex"`
 }
 
+// TaskInterface defines how the map and reduce tasks and controlled, and how they report
+// their status.
 type TaskInterface interface {
 	PostTask(c appengine.Context, fullUrl string) error
 	PostStatus(c appengine.Context, fullUrl string) error
@@ -245,6 +247,7 @@ func gatherTasks(c appengine.Context, jobKey *datastore.Key, taskType TaskType) 
 	return finalTasks, nil
 }
 
+// AppengineTaskQueue implements TaskInterface via appengine task queues
 type AppengineTaskQueue struct {
 	// StatusQueueName is the name of the queue used for tasks to report status to the controller
 	StatusQueueName string

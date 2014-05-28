@@ -10,7 +10,7 @@ import (
 	"runtime"
 )
 
-func ReduceCompleteTask(c appengine.Context, pipeline MapReducePipeline, taskKey *datastore.Key, r *http.Request) {
+func reduceCompleteTask(c appengine.Context, pipeline MapReducePipeline, taskKey *datastore.Key, r *http.Request) {
 	jobKey, err := parseCompleteRequest(c, pipeline, taskKey, r)
 	if err != nil {
 		return
@@ -30,7 +30,7 @@ func ReduceCompleteTask(c appengine.Context, pipeline MapReducePipeline, taskKey
 	pipeline.PostStatus(c, successUrl)
 }
 
-func ReduceTask(c appengine.Context, baseUrl string, mr MapReducePipeline, taskKey *datastore.Key, r *http.Request) {
+func reduceTask(c appengine.Context, baseUrl string, mr MapReducePipeline, taskKey *datastore.Key, r *http.Request) {
 	var shardNames []string
 	var writer SingleOutputWriter
 
