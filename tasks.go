@@ -39,6 +39,7 @@ type JobTask struct {
 	UpdatedAt time.Time
 	Type      TaskType
 	Result    string
+	Retries   int
 }
 
 type JobInfo struct {
@@ -46,6 +47,7 @@ type JobInfo struct {
 	Stage         JobStage
 	UpdatedAt     time.Time
 	TasksRunning  int
+	RetryCount    int
 	OnCompleteUrl string
 	WriterNames   []string `datastore:",noindex"`
 }

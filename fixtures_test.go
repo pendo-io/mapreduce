@@ -18,7 +18,7 @@ func (mrt *MapreduceTests) ContextFn(*http.Request) appengine.Context {
 
 var _ = check.Suite(&MapreduceTests{})
 
-func TestFoo(t *testing.T) { check.TestingT(t) }
+func TestMapReduce(t *testing.T) { check.TestingT(t) }
 
 func (s *MapreduceTests) SetUpSuite(c *check.C) {
 	if context, err := aetest.NewContext(nil); err != nil {

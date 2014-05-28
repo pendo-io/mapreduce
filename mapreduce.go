@@ -47,6 +47,7 @@ type MapReduceJob struct {
 	Outputs       OutputWriter
 	UrlPrefix     string
 	OnCompleteUrl string
+	RetryCount    int
 }
 
 type mappedDataList struct {
@@ -101,17 +102,17 @@ func (s *shardMappedDataList) next() (MappedData, error) {
 	return item, nil
 }
 
-type reduceResult struct {
-	error
-	storageNames []string
-}
-
 func Run(c appengine.Context, job MapReduceJob) (int64, error) {
 	readerNames, err := job.Inputs.ReaderNames()
 	if err != nil {
 		return 0, err
 	} else if len(readerNames) == 0 {
 		return 0, fmt.Errorf("no input readers")
+	}
+
+	if job.RetryCount == 0 {
+		// default
+		job.RetryCount = 3
 	}
 
 	writerNames, err := job.Outputs.WriterNames(c)
@@ -164,7 +165,7 @@ func Run(c appengine.Context, job MapReduceJob) (int64, error) {
 	return jobKey.IntID(), nil
 }
 
-type handler struct {
+type urlHandler struct {
 	pipeline   MapReducePipeline
 	baseUrl    string
 	getContext func(r *http.Request) appengine.Context
@@ -172,10 +173,10 @@ type handler struct {
 
 func MapReduceHandler(baseUrl string, pipeline MapReducePipeline,
 	getContext func(r *http.Request) appengine.Context) http.Handler {
-	return handler{pipeline, baseUrl, getContext}
+	return urlHandler{pipeline, baseUrl, getContext}
 }
 
-func (h handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (h urlHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	var taskKey *datastore.Key
 	var err error
 
