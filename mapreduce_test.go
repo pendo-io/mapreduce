@@ -18,6 +18,7 @@ import (
 	"appengine"
 	"fmt"
 	ck "gopkg.in/check.v1"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -33,7 +34,9 @@ type testUniqueWordCount struct {
 	MemoryIntermediateStorage
 	SimpleTasks
 
-	lineCount int
+	lineCount   int
+	mapParam    string
+	reduceParam string
 }
 
 type SimpleTasks struct {
@@ -42,28 +45,42 @@ type SimpleTasks struct {
 	group   sync.WaitGroup
 }
 
-func (st *SimpleTasks) PostTask(c appengine.Context, url string) error {
-	if strings.HasPrefix(url, "/done") {
-		st.done <- url
+func (st *SimpleTasks) PostTask(c appengine.Context, reqUrl string, params string) error {
+	if strings.HasPrefix(reqUrl, "/done") {
+		st.done <- reqUrl
 		return nil
 	}
 
-	req, _ := http.NewRequest("POST", url, nil)
+	print("posting task ", reqUrl, "\n")
+
+	body := io.Reader(nil)
+	if params != "" {
+		body = strings.NewReader(url.Values{"json": []string{params}}.Encode())
+	}
+
+	req, _ := http.NewRequest("POST", reqUrl, body)
+
+	if params != "" {
+		req.Header["Content-Type"] = []string{"application/x-www-form-urlencoded"}
+	}
+
 	st.group.Add(1)
 	go func() {
 		defer st.group.Done()
+		print("running task ", reqUrl, "\n")
 		w := httptest.NewRecorder()
 		st.handler.ServeHTTP(w, req)
 		if w.Code != 200 {
-			fmt.Printf("Got bad response code %s for url %s\n", w.Code, url)
+			fmt.Printf("Got bad response code %s for url %s\n", w.Code, reqUrl)
 		}
+		print("done running task ", reqUrl, "\n")
 	}()
 
 	return nil
 }
 
 func (st *SimpleTasks) PostStatus(c appengine.Context, url string) error {
-	return st.PostTask(c, url)
+	return st.PostTask(c, url, "")
 }
 
 func (st *SimpleTasks) gather() {
@@ -82,12 +99,21 @@ func (mrt *MapreduceTests) setup(pipe MapReducePipeline, tasks *SimpleTasks) Map
 		Outputs:           FileLineOutputWriter{[]string{"test1.out", "test2.out"}},
 		UrlPrefix:         "/mr/test",
 		OnCompleteUrl:     "/done",
+		JobParameters:     "job parameter",
 	}
 
 	return job
 }
 
+func (uwc *testUniqueWordCount) SetMapParameters(params string) {
+	uwc.mapParam = params
+}
+
 func (uwc testUniqueWordCount) Map(item interface{}, status StatusUpdateFunc) ([]MappedData, error) {
+	if uwc.mapParam != "job parameter" {
+		return nil, FatalError{fmt.Errorf("parameter not sent to map")}
+	}
+
 	line := item.(string)
 	words := strings.Split(line, " ")
 	result := make([]MappedData, 0, len(words))
@@ -107,7 +133,15 @@ func (uwc testUniqueWordCount) Map(item interface{}, status StatusUpdateFunc) ([
 	return result, nil
 }
 
+func (uwc *testUniqueWordCount) SetReduceParameters(params string) {
+	uwc.reduceParam = params
+}
+
 func (uwc testUniqueWordCount) Reduce(key interface{}, values []interface{}, status StatusUpdateFunc) (result interface{}, err error) {
+	if uwc.reduceParam != "job parameter" {
+		return nil, FatalError{fmt.Errorf("parameter not sent to reduce")}
+	}
+
 	return fmt.Sprintf("%s: %d", key, len(values)), nil
 }
 

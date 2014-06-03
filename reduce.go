@@ -57,11 +57,13 @@ func reduceTask(c appengine.Context, baseUrl string, mr MapReducePipeline, taskK
 			bytes := runtime.Stack(stack, false)
 			c.Criticalf("panic inside of reduce task %s:\n%s\n", taskKey.Encode(), stack[0:bytes])
 			errMsg := fmt.Sprintf("%s", r)
-			mr.PostTask(c, fmt.Sprintf("%s/reducecomplete?taskKey=%s;status=error;error=%s", baseUrl, taskKey.Encode(), url.QueryEscape(errMsg)))
+			mr.PostStatus(c, fmt.Sprintf("%s/reducecomplete?taskKey=%s;status=error;error=%s", baseUrl, taskKey.Encode(), url.QueryEscape(errMsg)))
 		}
 	}()
 
 	updateTask(c, taskKey, TaskStatusRunning, "", nil)
+
+	mr.SetReduceParameters(r.FormValue("json"))
 
 	var finalError error
 	if writerName := r.FormValue("writer"); writerName == "" {

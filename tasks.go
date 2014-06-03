@@ -57,19 +57,20 @@ type JobTask struct {
 }
 
 type JobInfo struct {
-	UrlPrefix     string
-	Stage         JobStage
-	UpdatedAt     time.Time
-	TasksRunning  int
-	RetryCount    int
-	OnCompleteUrl string
-	WriterNames   []string `datastore:",noindex"`
+	UrlPrefix      string
+	Stage          JobStage
+	UpdatedAt      time.Time
+	TasksRunning   int
+	RetryCount     int
+	OnCompleteUrl  string
+	WriterNames    []string `datastore:",noindex"`
+	JsonParameters string   `datastore:",noindex"`
 }
 
 // TaskInterface defines how the map and reduce tasks and controlled, and how they report
 // their status.
 type TaskInterface interface {
-	PostTask(c appengine.Context, fullUrl string) error
+	PostTask(c appengine.Context, fullUrl string, jsonParameters string) error
 	PostStatus(c appengine.Context, fullUrl string) error
 }
 
@@ -83,7 +84,7 @@ const (
 const JobEntity = "MapReduceJob"
 const TaskEntity = "MapReduceTask"
 
-func createJob(c appengine.Context, urlPrefix string, writerNames []string, onCompleteUrl string, retryCount int) (*datastore.Key, error) {
+func createJob(c appengine.Context, urlPrefix string, writerNames []string, onCompleteUrl string, jsonParameters string, retryCount int) (*datastore.Key, error) {
 	if retryCount == 0 {
 		// default
 		retryCount = 3
@@ -91,12 +92,13 @@ func createJob(c appengine.Context, urlPrefix string, writerNames []string, onCo
 
 	key := datastore.NewKey(c, JobEntity, "", 0, nil)
 	job := JobInfo{
-		UrlPrefix:     urlPrefix,
-		Stage:         StageFormation,
-		UpdatedAt:     time.Now(),
-		OnCompleteUrl: onCompleteUrl,
-		WriterNames:   writerNames,
-		RetryCount:    retryCount,
+		UrlPrefix:      urlPrefix,
+		Stage:          StageFormation,
+		UpdatedAt:      time.Now(),
+		OnCompleteUrl:  onCompleteUrl,
+		WriterNames:    writerNames,
+		RetryCount:     retryCount,
+		JsonParameters: jsonParameters,
 	}
 
 	return datastore.Put(c, key, &job)
@@ -275,8 +277,8 @@ type AppengineTaskQueue struct {
 	TaskQueueName string
 }
 
-func (q AppengineTaskQueue) PostTask(c appengine.Context, taskUrl string) error {
-	task := taskqueue.NewPOSTTask(taskUrl, url.Values{})
+func (q AppengineTaskQueue) PostTask(c appengine.Context, taskUrl string, jsonParameters string) error {
+	task := taskqueue.NewPOSTTask(taskUrl, url.Values{"json": []string{jsonParameters}})
 	_, err := taskqueue.Add(c, task, q.TaskQueueName)
 	return err
 }
@@ -301,7 +303,7 @@ func retryTask(c appengine.Context, pipeline MapReducePipeline, taskKey *datasto
 	task.Retries++
 	if _, err := datastore.Put(c, taskKey, &task); err != nil {
 		return err
-	} else if err := pipeline.PostTask(c, task.Url); err != nil {
+	} else if err := pipeline.PostTask(c, task.Url, job.JsonParameters); err != nil {
 		return err
 	}
 

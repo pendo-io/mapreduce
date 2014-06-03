@@ -42,12 +42,18 @@ type StatusUpdateFunc func(format string, paramList ...interface{})
 // a list of mapped items.
 type Mapper interface {
 	Map(item interface{}, statusUpdate StatusUpdateFunc) ([]MappedData, error)
+
+	// Called once with the job parameters for each mapper task
+	SetMapParameters(jsonParameters string)
 }
 
 // Reducer defines the reduce function; it is called once for each key and is given a list
 // of all of the values for that key.
 type Reducer interface {
 	Reduce(key interface{}, values []interface{}, statusUpdate StatusUpdateFunc) (result interface{}, err error)
+
+	// Called once with the job parameters for each mapper task
+	SetReduceParameters(jsonParameters string)
 }
 
 // FatalError wraps an error. If Map or Reduce returns a FatalError the task will not be retried
@@ -100,6 +106,10 @@ type MapReduceJob struct {
 	// return errors which are of type FatalError are not retried (defaults to 3, 1
 	// means it will never retry).
 	RetryCount int
+
+	// Parameters to pass to map and reduce job. They are assumed to be json encoded, though
+	// absolutely no effort is made to enforce that.
+	JobParameters string
 }
 
 type mappedDataList struct {
@@ -168,7 +178,7 @@ func Run(c appengine.Context, job MapReduceJob) (int64, error) {
 
 	reducerCount := len(writerNames)
 
-	jobKey, err := createJob(c, job.UrlPrefix, writerNames, job.OnCompleteUrl, job.RetryCount)
+	jobKey, err := createJob(c, job.UrlPrefix, writerNames, job.OnCompleteUrl, job.JobParameters, job.RetryCount)
 	if err != nil {
 		return 0, err
 	}
@@ -201,7 +211,7 @@ func Run(c appengine.Context, job MapReduceJob) (int64, error) {
 	}
 
 	for i := range tasks {
-		if err := job.PostTask(c, tasks[i].Url); err != nil {
+		if err := job.PostTask(c, tasks[i].Url, job.JobParameters); err != nil {
 			return 0, err
 		}
 	}

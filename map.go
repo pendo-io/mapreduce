@@ -108,7 +108,7 @@ func mapCompleteTask(c appengine.Context, pipeline MapReducePipeline, taskKey *d
 	}
 
 	for i := range tasks {
-		if err := pipeline.PostTask(c, tasks[i].Url); err != nil {
+		if err := pipeline.PostTask(c, tasks[i].Url, job.JsonParameters); err != nil {
 			c.Errorf("failed to create post reduce task: %s", err.Error())
 			return
 		}
@@ -125,9 +125,11 @@ func mapTask(c appengine.Context, baseUrl string, mr MapReducePipeline, taskKey 
 			bytes := runtime.Stack(stack, false)
 			c.Criticalf("panic inside of map task %s:\n%s\n", taskKey.Encode(), stack[0:bytes])
 			errMsg := fmt.Sprintf("%s", r)
-			mr.PostTask(c, fmt.Sprintf("%s/mapcomplete?taskKey=%s;status=error;error=%s", baseUrl, taskKey.Encode(), url.QueryEscape(errMsg)))
+			mr.PostStatus(c, fmt.Sprintf("%s/mapcomplete?taskKey=%s;status=error;error=%s", baseUrl, taskKey.Encode(), url.QueryEscape(errMsg)))
 		}
 	}()
+
+	mr.SetMapParameters(r.FormValue("json"))
 
 	if readerName := r.FormValue("reader"); readerName == "" {
 		finalErr = fmt.Errorf("reader parameter required")
@@ -146,7 +148,7 @@ func mapTask(c appengine.Context, baseUrl string, mr MapReducePipeline, taskKey 
 		if err := updateTask(c, taskKey, TaskStatusDone, "", shardNames); err != nil {
 			c.Criticalf("Could not update task: %s", err)
 		}
-		mr.PostTask(c, fmt.Sprintf("%s/mapcomplete?taskKey=%s;status=done", baseUrl, taskKey.Encode()))
+		mr.PostStatus(c, fmt.Sprintf("%s/mapcomplete?taskKey=%s;status=done", baseUrl, taskKey.Encode()))
 	} else {
 		errorType := "error"
 		if _, ok := finalErr.(tryAgainError); ok {
@@ -155,7 +157,7 @@ func mapTask(c appengine.Context, baseUrl string, mr MapReducePipeline, taskKey 
 		}
 
 		updateTask(c, taskKey, TaskStatusFailed, finalErr.Error(), nil)
-		mr.PostTask(c, fmt.Sprintf("%s/mapcomplete?taskKey=%s;status=%s;error=%s", baseUrl, taskKey.Encode(), errorType, url.QueryEscape(finalErr.Error())))
+		mr.PostStatus(c, fmt.Sprintf("%s/mapcomplete?taskKey=%s;status=%s;error=%s", baseUrl, taskKey.Encode(), errorType, url.QueryEscape(finalErr.Error())))
 	}
 }
 
