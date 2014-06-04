@@ -129,7 +129,9 @@ func mapTask(c appengine.Context, baseUrl string, mr MapReducePipeline, taskKey 
 		}
 	}()
 
-	mr.SetMapParameters(r.FormValue("json"))
+	jsonParameters := r.FormValue("json")
+	mr.SetMapParameters(jsonParameters)
+	mr.SetShardParameters(jsonParameters)
 
 	if readerName := r.FormValue("reader"); readerName == "" {
 		finalErr = fmt.Errorf("reader parameter required")

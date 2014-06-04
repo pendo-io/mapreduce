@@ -35,6 +35,9 @@ type KeyHandler interface {
 	// Shard returns the shard number a key belongs to, given the total number of shards
 	// which are being used for the job
 	Shard(a interface{}, shardCount int) int
+
+	// Provides the (probably json) parameters for the job; may be useful for sharding strategy
+	SetShardParameters(jsonParameters string)
 }
 
 // StringKeyHandler provides a KeyHandler for string keys
@@ -65,3 +68,5 @@ func (s StringKeyHandler) Shard(strInt interface{}, shardCount int) int {
 	hashVal := int(sum[0])<<8 | int(sum[1])
 	return hashVal % shardCount
 }
+
+func (s StringKeyHandler) SetShardParameters(jsonParameters string) {}
