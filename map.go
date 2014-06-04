@@ -137,7 +137,7 @@ func mapTask(c appengine.Context, baseUrl string, mr MapReducePipeline, taskKey 
 		finalErr = fmt.Errorf("shards parameter required")
 	} else if shardCount, err := strconv.ParseInt(shardStr, 10, 32); err != nil {
 		finalErr = fmt.Errorf("error parsing shard count: %s", err.Error())
-	} else if reader, err := mr.ReaderFromName(readerName); err != nil {
+	} else if reader, err := mr.ReaderFromName(c, readerName); err != nil {
 		finalErr = fmt.Errorf("error making reader: %s", err)
 	} else {
 		shardNames, finalErr = mapperFunc(c, mr, reader, int(shardCount),

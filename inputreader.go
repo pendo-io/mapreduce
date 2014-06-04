@@ -15,6 +15,7 @@
 package mapreduce
 
 import (
+	"appengine"
 	"bufio"
 	"fmt"
 	"io"
@@ -30,7 +31,7 @@ type InputReader interface {
 	ReaderNames() ([]string, error)
 
 	// ReaderFromName() creates the SingleInputReader for the given name
-	ReaderFromName(name string) (SingleInputReader, error)
+	ReaderFromName(c appengine.Context, name string) (SingleInputReader, error)
 }
 
 type SingleInputReader interface {
@@ -50,7 +51,7 @@ func (m FileLineInputReader) ReaderNames() ([]string, error) {
 	return m.Paths, nil
 }
 
-func (m FileLineInputReader) ReaderFromName(path string) (SingleInputReader, error) {
+func (m FileLineInputReader) ReaderFromName(c appengine.Context, path string) (SingleInputReader, error) {
 	return newSingleFileLineInputReader(path)
 }
 
