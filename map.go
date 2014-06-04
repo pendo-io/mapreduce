@@ -54,9 +54,8 @@ func mapCompleteTask(c appengine.Context, pipeline MapReducePipeline, taskKey *d
 		return
 	}
 
-	// we have one set for each input, each set has ReducerCount data sets in it
-	// (each of which is already sorted)
-	storageNames := make([][]string, len(mapTasks))
+	// we have one set for each reducer task
+	storageNames := make([][]string, len(job.WriterNames))
 
 	for i := range mapTasks {
 		var shardNames map[string]int
@@ -171,7 +170,9 @@ func mapperFunc(c appengine.Context, mr MapReducePipeline, reader SingleInputRea
 		dataSets[i] = mappedDataList{data: make([]MappedData, 0), compare: mr}
 	}
 
-	for item, err := reader.Next(); item != nil && err == nil; item, err = reader.Next() {
+	var err error
+	var item interface{}
+	for item, err = reader.Next(); item != nil && err == nil; item, err = reader.Next() {
 		itemList, err := mr.Map(item, statusFunc)
 
 		if err != nil {
@@ -190,10 +191,16 @@ func mapperFunc(c appengine.Context, mr MapReducePipeline, reader SingleInputRea
 		}
 	}
 
+	if err != nil {
+		return nil, err
+	}
+
 	names := make(map[string]int, len(dataSets))
 	for i := range dataSets {
+		c.Infof("storing shard %d, length %d", i, len(dataSets[i].data))
 		sort.Sort(dataSets[i])
 		if name, err := mr.Store(c, dataSets[i].data, mr); err != nil {
+			err = fmt.Errorf("error writing to intermediate storage: %s", err)
 			return nil, err
 		} else {
 			names[name] = i
