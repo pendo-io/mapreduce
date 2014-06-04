@@ -55,7 +55,7 @@ func reduceTask(c appengine.Context, baseUrl string, mr MapReducePipeline, taskK
 		if r := recover(); r != nil {
 			stack := make([]byte, 16384)
 			bytes := runtime.Stack(stack, false)
-			c.Criticalf("panic inside of reduce task %s:\n%s\n", taskKey.Encode(), stack[0:bytes])
+			c.Criticalf("panic inside of reduce task %s: %s\n%s\n", taskKey.Encode(), r, stack[0:bytes])
 			errMsg := fmt.Sprintf("%s", r)
 			mr.PostStatus(c, fmt.Sprintf("%s/reducecomplete?taskKey=%s;status=error;error=%s", baseUrl, taskKey.Encode(), url.QueryEscape(errMsg)))
 		}
