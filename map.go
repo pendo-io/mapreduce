@@ -50,7 +50,7 @@ func mapCompleteTask(c appengine.Context, pipeline MapReducePipeline, taskKey *d
 
 	mapTasks, err := gatherTasks(c, jobKey, TaskTypeMap)
 	if err != nil {
-		c.Errorf("error loading tasks after map complete: %s", err.Error())
+		jobFailed(c, pipeline, jobKey, fmt.Errorf("error loading tasks after map complete: %s", err.Error()))
 		return
 	}
 
@@ -60,7 +60,7 @@ func mapCompleteTask(c appengine.Context, pipeline MapReducePipeline, taskKey *d
 	for i := range mapTasks {
 		var shardNames map[string]int
 		if err = json.Unmarshal([]byte(mapTasks[i].Result), &shardNames); err != nil {
-			c.Errorf("cannot unmarshal map shard names: %s", err.Error())
+			jobFailed(c, pipeline, jobKey, fmt.Errorf("cannot unmarshal map shard names: %s", err.Error()))
 			return
 		} else {
 			for name, shard := range shardNames {
@@ -73,7 +73,7 @@ func mapCompleteTask(c appengine.Context, pipeline MapReducePipeline, taskKey *d
 	taskKeys := make([]*datastore.Key, 0, len(job.WriterNames))
 	firstId, _, err := datastore.AllocateIDs(c, TaskEntity, jobKey, len(job.WriterNames))
 	if err != nil {
-		c.Errorf("failed to allocate ids for reduce tasks: %s", err.Error())
+		jobFailed(c, pipeline, jobKey, fmt.Errorf("failed to allocate ids for reduce tasks: %s", err.Error()))
 		return
 	}
 
@@ -87,8 +87,8 @@ func mapCompleteTask(c appengine.Context, pipeline MapReducePipeline, taskKey *d
 			taskKey := datastore.NewKey(c, TaskEntity, "", firstId, jobKey)
 			taskKeys = append(taskKeys, taskKey)
 			url := fmt.Sprintf("%s/reduce?taskKey=%s;writer=%s;shards=%s",
-				job.UrlPrefix, taskKey.Encode(), job.WriterNames[shard],
-				shardParam)
+				job.UrlPrefix, taskKey.Encode(), url.QueryEscape(job.WriterNames[shard]),
+				url.QueryEscape(shardParam))
 
 			firstId++
 
@@ -102,13 +102,13 @@ func mapCompleteTask(c appengine.Context, pipeline MapReducePipeline, taskKey *d
 	}
 
 	if err := createTasks(c, jobKey, taskKeys, tasks, StageReducing); err != nil {
-		c.Errorf("failed to create reduce tasks: %s", err.Error())
+		jobFailed(c, pipeline, jobKey, fmt.Errorf("failed to create reduce tasks: %s", err.Error()))
 		return
 	}
 
 	for i := range tasks {
 		if err := pipeline.PostTask(c, tasks[i].Url, job.JsonParameters); err != nil {
-			c.Errorf("failed to create post reduce task: %s", err.Error())
+			jobFailed(c, pipeline, jobKey, fmt.Errorf("failed to post reduce task: %s", err.Error()))
 			return
 		}
 	}

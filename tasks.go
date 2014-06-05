@@ -241,7 +241,18 @@ func updateTask(c appengine.Context, taskKey *datastore.Key, status TaskStatus, 
 	return err
 }
 
-func GetJobResults(c appengine.Context, jobKey *datastore.Key) ([]interface{}, error) {
+func GetJob(c appengine.Context, jobId int64) (JobInfo, error) {
+	jobKey := datastore.NewKey(c, JobEntity, "", jobId, nil)
+	var job JobInfo
+	if err := datastore.Get(c, jobKey, &job); err != nil {
+		return JobInfo{}, err
+	}
+
+	return job, nil
+}
+
+func GetJobResults(c appengine.Context, jobId int64) ([]interface{}, error) {
+	jobKey := datastore.NewKey(c, JobEntity, "", jobId, nil)
 	tasks, err := gatherTasks(c, jobKey, TaskTypeReduce)
 	if err != nil {
 		return nil, err
@@ -345,10 +356,27 @@ func parseCompleteRequest(c appengine.Context, pipeline MapReducePipeline, taskK
 			return nil, false, finalErr
 		}
 
-		pipeline.PostStatus(c, fmt.Sprintf("%s?status=error;error=%s;id=%d", prevJob.OnCompleteUrl,
-			url.QueryEscape(finalErr.Error()), jobKey.IntID()))
+		if prevJob.OnCompleteUrl != "" {
+			pipeline.PostStatus(c, fmt.Sprintf("%s?status=error;error=%s;id=%d", prevJob.OnCompleteUrl,
+				url.QueryEscape(finalErr.Error()), jobKey.IntID()))
+		}
 		return nil, false, finalErr
 	}
 
 	return jobKey, false, nil
+}
+
+func jobFailed(c appengine.Context, pipeline MapReducePipeline, jobKey *datastore.Key, err error) {
+	c.Errorf("%s", err)
+	prevJob, _ := updateJobStage(c, jobKey, StageFailed)
+	if prevJob.Stage == StageFailed {
+		return
+	}
+
+	if prevJob.OnCompleteUrl != "" {
+		pipeline.PostStatus(c, fmt.Sprintf("%s?status=error;error=%s;id=%d", prevJob.OnCompleteUrl,
+			url.QueryEscape(err.Error()), jobKey.IntID()))
+	}
+
+	return
 }

@@ -27,7 +27,7 @@ import (
 func reduceCompleteTask(c appengine.Context, pipeline MapReducePipeline, taskKey *datastore.Key, r *http.Request) {
 	jobKey, complete, err := parseCompleteRequest(c, pipeline, taskKey, r)
 	if err != nil {
-		c.Errorf("failed reduce task %s: %s\n", taskKey.Encode(), err)
+		jobFailed(c, pipeline, jobKey, fmt.Errorf("failed reduce task %s: %s\n", taskKey.Encode(), err))
 		return
 	} else if complete {
 		return
@@ -35,7 +35,7 @@ func reduceCompleteTask(c appengine.Context, pipeline MapReducePipeline, taskKey
 
 	done, job, err := taskComplete(c, jobKey, StageReducing, StageDone)
 	if err != nil {
-		c.Errorf("error getting task complete status: %s", err.Error())
+		jobFailed(c, pipeline, jobKey, fmt.Errorf("error getting task complete status: %s", err.Error()))
 		return
 	}
 
