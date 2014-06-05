@@ -43,8 +43,10 @@ func reduceCompleteTask(c appengine.Context, pipeline MapReducePipeline, taskKey
 		return
 	}
 
-	successUrl := fmt.Sprintf("%s?status=%s;id=%d", job.OnCompleteUrl, TaskStatusDone, jobKey.IntID())
-	pipeline.PostStatus(c, successUrl)
+	if job.OnCompleteUrl != "" {
+		successUrl := fmt.Sprintf("%s?status=%s;id=%d", job.OnCompleteUrl, TaskStatusDone, jobKey.IntID())
+		pipeline.PostStatus(c, successUrl)
+	}
 }
 
 func reduceTask(c appengine.Context, baseUrl string, mr MapReducePipeline, taskKey *datastore.Key, r *http.Request) {

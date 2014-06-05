@@ -103,7 +103,8 @@ type MapReduceJob struct {
 
 	// OnCompleteUrl is the url to post to when a job is completed. The full url will include
 	// multiple query parameters, including status=(done|error) and id=(jobId). If
-	// an error occurred the error parameter will also be displayed.
+	// an error occurred the error parameter will also be displayed. If this is empty, no
+	// complete notification is given; it is assumed the caller will poll for results.
 	OnCompleteUrl string
 
 	// RetryCount is the number of times individual map/reduce tasks should be retried. Tasks that
