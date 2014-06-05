@@ -157,8 +157,10 @@ func ReduceFunc(c appengine.Context, mr MapReducePipeline, writer SingleOutputWr
 				err = tryAgainError{err}
 			}
 			return err
-		} else if err := writer.Write(result); err != nil {
-			return err
+		} else if result != nil {
+			if err := writer.Write(result); err != nil {
+				return err
+			}
 		}
 
 		key = item.Key
@@ -168,8 +170,20 @@ func ReduceFunc(c appengine.Context, mr MapReducePipeline, writer SingleOutputWr
 
 	if result, err := mr.Reduce(key, values, statusFunc); err != nil {
 		return err
-	} else if err := writer.Write(result); err != nil {
+	} else if result != nil {
+		if err := writer.Write(result); err != nil {
+			return err
+		}
+	}
+
+	if results, err := mr.ReduceComplete(statusFunc); err != nil {
 		return err
+	} else {
+		for _, result := range results {
+			if err := writer.Write(result); err != nil {
+				return err
+			}
+		}
 	}
 
 	writer.Close(c)

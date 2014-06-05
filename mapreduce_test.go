@@ -137,12 +137,16 @@ func (uwc *testUniqueWordCount) SetReduceParameters(params string) {
 	uwc.reduceParam = params
 }
 
-func (uwc testUniqueWordCount) Reduce(key interface{}, values []interface{}, status StatusUpdateFunc) (result interface{}, err error) {
+func (uwc testUniqueWordCount) Reduce(key interface{}, values []interface{}, status StatusUpdateFunc) (interface{}, error) {
 	if uwc.reduceParam != "job parameter" {
 		return nil, FatalError{fmt.Errorf("parameter not sent to reduce")}
 	}
 
 	return fmt.Sprintf("%s: %d", key, len(values)), nil
+}
+
+func (uwc testUniqueWordCount) ReduceComplete(status StatusUpdateFunc) ([]interface{}, error) {
+	return nil, nil
 }
 
 func (mrt *MapreduceTests) TestWordCount(c *ck.C) {

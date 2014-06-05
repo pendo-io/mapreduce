@@ -54,6 +54,10 @@ type Reducer interface {
 
 	// Called once with the job parameters for each mapper task
 	SetReduceParameters(jsonParameters string)
+
+	// Called when the reduce is complete. Each item in the results array will be passed separately
+	// to the output writer
+	ReduceComplete(statusUpdate StatusUpdateFunc) ([]interface{}, error)
 }
 
 // FatalError wraps an error. If Map or Reduce returns a FatalError the task will not be retried
