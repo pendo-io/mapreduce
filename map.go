@@ -144,7 +144,7 @@ func mapTask(c appengine.Context, baseUrl string, mr MapReducePipeline, taskKey 
 
 	if finalErr == nil {
 		if _, err := updateTask(c, taskKey, TaskStatusDone, "", shardNames); err != nil {
-			c.Criticalf("Could not update task: %s", err)
+			panic(fmt.Errorf("Could not update task: %s", err))
 		}
 		mr.PostStatus(c, fmt.Sprintf("%s/mapcomplete?taskKey=%s;status=done", baseUrl, taskKey.Encode()))
 	} else {

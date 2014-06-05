@@ -81,7 +81,9 @@ func reduceTask(c appengine.Context, baseUrl string, mr MapReducePipeline, taskK
 	}
 
 	if finalError == nil {
-		updateTask(c, taskKey, TaskStatusDone, "", writer.ToName())
+		if _, err := updateTask(c, taskKey, TaskStatusDone, "", writer.ToName()); err != nil {
+			panic(fmt.Errorf("Could not update task: %s", err))
+		}
 		mr.PostStatus(c, fmt.Sprintf("%s/reducecomplete?taskKey=%s;status=done", baseUrl, taskKey.Encode()))
 	} else {
 		errorType := "error"

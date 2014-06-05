@@ -78,11 +78,11 @@ func newSingleFileLineOutputWriter(path string) (SingleOutputWriter, error) {
 // NilOutputWriter collects output and throws it away. Useful for reduce tasks which only have
 // side affects
 type NilOutputWriter struct {
-	count int
+	Count int
 }
 
 func (n NilOutputWriter) WriterNames(c appengine.Context) ([]string, error) {
-	result := make([]string, n.count)
+	result := make([]string, n.Count)
 	for i := range result {
 		result[i] = "(niloutputwriter)"
 	}

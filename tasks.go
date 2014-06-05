@@ -49,15 +49,15 @@ const (
 type JobTask struct {
 	Status    TaskStatus
 	RunCount  int
-	Url       string `datastore:",noindex"`
 	Info      string
 	StartTime time.Time
 	UpdatedAt time.Time
 	Type      TaskType
-	Result    string
 	Retries   int
 	// this is named intermediate storage sources, and only used for reduce tasks
-	ReadFrom []string
+	ReadFrom []string `datastore:",noindex"`
+	Url      string   `datastore:",noindex"`
+	Result   string   `datastore:",noindex"`
 }
 
 // JobInfo is the entity stored in the datastore defining the MapReduce Job
@@ -263,6 +263,19 @@ func GetJobResults(c appengine.Context, jobId int64) ([]interface{}, error) {
 	}
 
 	return result, nil
+}
+
+func RemoveJob(c appengine.Context, jobId int64) error {
+	jobKey := datastore.NewKey(c, JobEntity, "", jobId, nil)
+	q := datastore.NewQuery(TaskEntity).Ancestor(jobKey).KeysOnly()
+	keys, err := q.GetAll(c, nil)
+	if err != nil {
+		return err
+	}
+
+	keys = append(keys, jobKey)
+
+	return datastore.DeleteMulti(c, keys)
 }
 
 func gatherTasks(c appengine.Context, jobKey *datastore.Key, taskType TaskType) ([]JobTask, error) {

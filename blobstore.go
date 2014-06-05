@@ -54,7 +54,7 @@ func (b BlobstoreWriter) WriterNames(c appengine.Context) ([]string, error) {
 
 func (m BlobstoreWriter) WriterFromName(c appengine.Context, name string) (SingleOutputWriter, error) {
 	if name != "(unnamedblob)" {
-		panic("ack")
+		panic("bad name for blobstore writer")
 	}
 
 	w, err := blobstore.Create(c, "text/plain")
