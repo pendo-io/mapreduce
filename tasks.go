@@ -56,6 +56,8 @@ type JobTask struct {
 	Type      TaskType
 	Result    string
 	Retries   int
+	// this is named intermediate storage sources, and only used for reduce tasks
+	ReadFrom []string
 }
 
 // JobInfo is the entity stored in the datastore defining the MapReduce Job
@@ -214,11 +216,11 @@ func taskComplete(c appengine.Context, jobKey *datastore.Key, expectedStage, nex
 	return
 }
 
-func updateTask(c appengine.Context, taskKey *datastore.Key, status TaskStatus, info string, result interface{}) error {
+func updateTask(c appengine.Context, taskKey *datastore.Key, status TaskStatus, info string, result interface{}) (JobTask, error) {
 	var task JobTask
 
 	if err := datastore.Get(c, taskKey, &task); err != nil {
-		return err
+		return JobTask{}, err
 	}
 
 	task.UpdatedAt = time.Now()
@@ -231,14 +233,14 @@ func updateTask(c appengine.Context, taskKey *datastore.Key, status TaskStatus, 
 	if result != nil {
 		resultBytes, err := json.Marshal(result)
 		if err != nil {
-			return err
+			return JobTask{}, err
 		}
 
 		task.Result = string(resultBytes)
 	}
 
 	_, err := datastore.Put(c, taskKey, &task)
-	return err
+	return task, err
 }
 
 func GetJob(c appengine.Context, jobId int64) (JobInfo, error) {

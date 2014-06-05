@@ -81,14 +81,10 @@ func mapCompleteTask(c appengine.Context, pipeline MapReducePipeline, taskKey *d
 		shards := storageNames[shard]
 
 		if len(shards) > 0 {
-			shardSet, _ := json.Marshal(shards)
-			shardParam := url.QueryEscape(string(shardSet))
-
 			taskKey := datastore.NewKey(c, TaskEntity, "", firstId, jobKey)
 			taskKeys = append(taskKeys, taskKey)
-			url := fmt.Sprintf("%s/reduce?taskKey=%s;writer=%s;shards=%s",
-				job.UrlPrefix, taskKey.Encode(), url.QueryEscape(job.WriterNames[shard]),
-				url.QueryEscape(shardParam))
+			url := fmt.Sprintf("%s/reduce?taskKey=%s;shard=%d;writer=%s",
+				job.UrlPrefix, taskKey.Encode(), shard, url.QueryEscape(job.WriterNames[shard]))
 
 			firstId++
 
@@ -96,6 +92,7 @@ func mapCompleteTask(c appengine.Context, pipeline MapReducePipeline, taskKey *d
 				Status:   TaskStatusPending,
 				RunCount: 0,
 				Url:      url,
+				ReadFrom: shards,
 				Type:     TaskTypeReduce,
 			})
 		}
@@ -146,7 +143,7 @@ func mapTask(c appengine.Context, baseUrl string, mr MapReducePipeline, taskKey 
 	}
 
 	if finalErr == nil {
-		if err := updateTask(c, taskKey, TaskStatusDone, "", shardNames); err != nil {
+		if _, err := updateTask(c, taskKey, TaskStatusDone, "", shardNames); err != nil {
 			c.Criticalf("Could not update task: %s", err)
 		}
 		mr.PostStatus(c, fmt.Sprintf("%s/mapcomplete?taskKey=%s;status=done", baseUrl, taskKey.Encode()))

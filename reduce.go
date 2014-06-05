@@ -17,7 +17,6 @@ package mapreduce
 import (
 	"appengine"
 	"appengine/datastore"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -50,7 +49,6 @@ func reduceCompleteTask(c appengine.Context, pipeline MapReducePipeline, taskKey
 }
 
 func reduceTask(c appengine.Context, baseUrl string, mr MapReducePipeline, taskKey *datastore.Key, r *http.Request) {
-	var shardNames []string
 	var writer SingleOutputWriter
 
 	defer func() {
@@ -63,24 +61,22 @@ func reduceTask(c appengine.Context, baseUrl string, mr MapReducePipeline, taskK
 		}
 	}()
 
-	updateTask(c, taskKey, TaskStatusRunning, "", nil)
+	task, err := updateTask(c, taskKey, TaskStatusRunning, "", nil)
+	if err != nil {
+		err := fmt.Errorf("failed to update reduce task to running: %s", err)
+		c.Criticalf("%s", err)
+		mr.PostStatus(c, fmt.Sprintf("%s/reducecomplete?taskKey=%s;status=error;error=%s", baseUrl, taskKey.Encode(), url.QueryEscape(err.Error())))
+	}
 
 	mr.SetReduceParameters(r.FormValue("json"))
 
 	var finalError error
 	if writerName := r.FormValue("writer"); writerName == "" {
 		finalError = fmt.Errorf("writer parameter required")
-	} else if shardParam := r.FormValue("shards"); shardParam == "" {
-		finalError = fmt.Errorf("shards parameter required")
-	} else if shardJson, err := url.QueryUnescape(shardParam); err != nil {
-		finalError = fmt.Errorf("cannot urldecode shards: %s", err.Error)
-	} else if err := json.Unmarshal([]byte(shardJson), &shardNames); err != nil {
-		fmt.Printf("json is ", shardJson)
-		finalError = fmt.Errorf("cannot unmarshal shard names: %s", err.Error())
 	} else if writer, err = mr.WriterFromName(c, writerName); err != nil {
 		finalError = fmt.Errorf("error getting writer: %s", err.Error())
 	} else {
-		finalError = ReduceFunc(c, mr, writer, shardNames,
+		finalError = ReduceFunc(c, mr, writer, task.ReadFrom,
 			makeStatusUpdateFunc(c, mr, fmt.Sprintf("%s/reducestatus", baseUrl), taskKey.Encode()))
 	}
 
