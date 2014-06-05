@@ -97,21 +97,21 @@ type MapReduceJob struct {
 	Inputs  InputReader
 	Outputs OutputWriter
 
-	// The UrlPrefix is the base url path used for mapreduce jobs posted into
+	// UrlPrefix is the base url path used for mapreduce jobs posted into
 	// task queues, and must match the baseUrl passed into MapReduceHandler()
 	UrlPrefix string
 
-	// The url to post to when a job is completed. The full url will include
+	// OnCompleteUrl is the url to post to when a job is completed. The full url will include
 	// multiple query parameters, including status=(done|error) and id=(jobId). If
 	// an error occurred the error parameter will also be displayed.
 	OnCompleteUrl string
 
-	// The number of times individual map/reduce tasks should be retried. Tasks that
+	// RetryCount is the number of times individual map/reduce tasks should be retried. Tasks that
 	// return errors which are of type FatalError are not retried (defaults to 3, 1
 	// means it will never retry).
 	RetryCount int
 
-	// Parameters to pass to map and reduce job. They are assumed to be json encoded, though
+	// JobParameters is passed to map and reduce job. They are assumed to be json encoded, though
 	// absolutely no effort is made to enforce that.
 	JobParameters string
 }
