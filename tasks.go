@@ -127,9 +127,6 @@ func createTasks(c appengine.Context, jobKey *datastore.Key, taskKeys []*datasto
 		job.TasksRunning = len(tasks)
 		job.Stage = newStage
 
-		if len(job.WriterNames) > 2 {
-			panic("here")
-		}
 		if _, err := datastore.Put(c, jobKey, &job); err != nil {
 			return err
 		}
