@@ -43,15 +43,15 @@ type singleFileLineInputReader struct {
 	r    *bufio.Reader
 }
 
-type fileLineInputReader struct {
+type FileLineInputReader struct {
 	Paths []string
 }
 
-func (m fileLineInputReader) ReaderNames() ([]string, error) {
+func (m FileLineInputReader) ReaderNames() ([]string, error) {
 	return m.Paths, nil
 }
 
-func (m fileLineInputReader) ReaderFromName(c appengine.Context, path string) (SingleInputReader, error) {
+func (m FileLineInputReader) ReaderFromName(c appengine.Context, path string) (SingleInputReader, error) {
 	return newSingleFileLineInputReader(path)
 }
 
