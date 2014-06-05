@@ -126,6 +126,12 @@ func ReduceFunc(c appengine.Context, mr MapReducePipeline, writer SingleOutputWr
 	}
 
 	if len(merger.items) == 0 {
+		for _, shardName := range shardNames {
+			if err := mr.RemoveIntermediate(c, shardName); err != nil {
+				c.Errorf("failed to remove intermediate file: %s", err.Error())
+			}
+		}
+
 		return nil
 	}
 
