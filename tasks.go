@@ -44,6 +44,8 @@ const (
 	StageFailed    = JobStage("failed")
 )
 
+// JobTask is the entity stored in the datastore defining a single MapReduce task. They
+// have JobInfo entities as their parents.
 type JobTask struct {
 	Status    TaskStatus
 	RunCount  int
@@ -56,6 +58,7 @@ type JobTask struct {
 	Retries   int
 }
 
+// JobInfo is the entity stored in the datastore defining the MapReduce Job
 type JobInfo struct {
 	UrlPrefix      string
 	Stage          JobStage
@@ -76,11 +79,13 @@ type TaskInterface interface {
 
 type TaskType string
 
+// TaskTypes defines the type of task, map or reduce
 const (
-	TaskTypeMap    = "map"
-	TaskTypeReduce = "reduce"
+	TaskTypeMap    = TaskType("map")
+	TaskTypeReduce = TaskType("reduce")
 )
 
+// Datastore entity kinds for jobs and tasks
 const JobEntity = "MapReduceJob"
 const TaskEntity = "MapReduceTask"
 
