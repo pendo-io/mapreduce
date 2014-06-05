@@ -26,15 +26,16 @@ type OutputWriter interface {
 	WriterFromName(c appengine.Context, name string) (SingleOutputWriter, error)
 }
 
-type FileLineOutputWriter struct {
+// local file output; used for testing
+type fileLineOutputWriter struct {
 	Paths []string
 }
 
-func (m FileLineOutputWriter) WriterNames(c appengine.Context) ([]string, error) {
+func (m fileLineOutputWriter) WriterNames(c appengine.Context) ([]string, error) {
 	return m.Paths, nil
 }
 
-func (m FileLineOutputWriter) WriterFromName(c appengine.Context, name string) (SingleOutputWriter, error) {
+func (m fileLineOutputWriter) WriterFromName(c appengine.Context, name string) (SingleOutputWriter, error) {
 	return newSingleFileLineOutputWriter(name)
 }
 
@@ -53,7 +54,7 @@ func (o LineOutputWriter) Write(data interface{}) error {
 	return nil
 }
 
-type SingleFileLineOutputWriter struct {
+type singleFileLineOutputWriter struct {
 	LineOutputWriter
 	path string
 }
@@ -61,19 +62,21 @@ type SingleFileLineOutputWriter struct {
 func (o LineOutputWriter) Close(c appengine.Context) {
 }
 
-func (o SingleFileLineOutputWriter) ToName() string {
+func (o singleFileLineOutputWriter) ToName() string {
 	return o.path
 }
 
 func newSingleFileLineOutputWriter(path string) (SingleOutputWriter, error) {
 	w, err := os.Create(path)
 	if err != nil {
-		return SingleFileLineOutputWriter{}, err
+		return singleFileLineOutputWriter{}, err
 	}
 
-	return SingleFileLineOutputWriter{path: path, LineOutputWriter: LineOutputWriter{w}}, nil
+	return singleFileLineOutputWriter{path: path, LineOutputWriter: LineOutputWriter{w}}, nil
 }
 
+// NilOutputWriter collects output and throws it away. Useful for reduce tasks which only have
+// side affects
 type NilOutputWriter struct {
 	count int
 }
@@ -88,18 +91,18 @@ func (n NilOutputWriter) WriterNames(c appengine.Context) ([]string, error) {
 }
 
 func (n NilOutputWriter) WriterFromName(c appengine.Context, name string) (SingleOutputWriter, error) {
-	return NilSingleOutputWriter{}, nil
+	return nilSingleOutputWriter{}, nil
 }
 
-type NilSingleOutputWriter struct{}
+type nilSingleOutputWriter struct{}
 
-func (n NilSingleOutputWriter) Write(data interface{}) error {
+func (n nilSingleOutputWriter) Write(data interface{}) error {
 	return nil
 }
 
-func (n NilSingleOutputWriter) Close(c appengine.Context) {
+func (n nilSingleOutputWriter) Close(c appengine.Context) {
 }
 
-func (n NilSingleOutputWriter) ToName() string {
+func (n nilSingleOutputWriter) ToName() string {
 	return "(niloutput)"
 }

@@ -42,12 +42,12 @@ type IntermediateStorage interface {
 	RemoveIntermediate(c appengine.Context, name string) error
 }
 
-type ArrayIterator struct {
+type arrayIterator struct {
 	data      []MappedData
 	nextIndex int
 }
 
-func (sf *ArrayIterator) Next() (MappedData, bool, error) {
+func (sf *arrayIterator) Next() (MappedData, bool, error) {
 	if sf.nextIndex >= len(sf.data) {
 		return MappedData{}, false, nil
 	}
@@ -56,28 +56,28 @@ func (sf *ArrayIterator) Next() (MappedData, bool, error) {
 	return sf.data[sf.nextIndex-1], true, nil
 }
 
-// MemoryIntermediateStorage is a simple IntermediateStorage implementation which keeps objects in memory
+// memoryIntermediateStorage is a simple IntermediateStorage implementation which keeps objects in memory
 // with no encoding. It only works in test environments.
-type MemoryIntermediateStorage struct {
+type memoryIntermediateStorage struct {
 	items [][]MappedData
 }
 
-func (m *MemoryIntermediateStorage) Store(c appengine.Context, items []MappedData, handler KeyValueHandler) (string, error) {
+func (m *memoryIntermediateStorage) Store(c appengine.Context, items []MappedData, handler KeyValueHandler) (string, error) {
 	name := fmt.Sprintf("%d", len(m.items))
 	m.items = append(m.items, items)
 	return name, nil
 }
 
-func (m *MemoryIntermediateStorage) Iterator(c appengine.Context, name string, handler KeyValueHandler) (IntermediateStorageIterator, error) {
+func (m *memoryIntermediateStorage) Iterator(c appengine.Context, name string, handler KeyValueHandler) (IntermediateStorageIterator, error) {
 	index, err := strconv.ParseInt(name, 10, 64)
 	if err != nil {
 		return nil, err
 	}
 
-	return &ArrayIterator{m.items[index], 0}, nil
+	return &arrayIterator{m.items[index], 0}, nil
 }
 
-func (m *MemoryIntermediateStorage) RemoveIntermediate(c appengine.Context, name string) error {
+func (m *memoryIntermediateStorage) RemoveIntermediate(c appengine.Context, name string) error {
 	// eh. whatever.
 	return nil
 }

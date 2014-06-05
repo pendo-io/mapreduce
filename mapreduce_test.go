@@ -27,11 +27,11 @@ import (
 )
 
 type testUniqueWordCount struct {
-	FileLineInputReader
-	FileLineOutputWriter
+	fileLineInputReader
+	fileLineOutputWriter
 	StringKeyHandler
 	IntValueHandler
-	MemoryIntermediateStorage
+	memoryIntermediateStorage
 	SimpleTasks
 
 	lineCount   int
@@ -95,8 +95,8 @@ func (mrt *MapreduceTests) setup(pipe MapReducePipeline, tasks *SimpleTasks) Map
 
 	job := MapReduceJob{
 		MapReducePipeline: pipe,
-		Inputs:            FileLineInputReader{[]string{"testdata/pandp-1", "testdata/pandp-2", "testdata/pandp-3", "testdata/pandp-4", "testdata/pandp-5"}},
-		Outputs:           FileLineOutputWriter{[]string{"test1.out", "test2.out"}},
+		Inputs:            fileLineInputReader{[]string{"testdata/pandp-1", "testdata/pandp-2", "testdata/pandp-3", "testdata/pandp-4", "testdata/pandp-5"}},
+		Outputs:           fileLineOutputWriter{[]string{"test1.out", "test2.out"}},
 		UrlPrefix:         "/mr/test",
 		OnCompleteUrl:     "/done",
 		JobParameters:     "job parameter",
