@@ -174,7 +174,7 @@ func mapperFunc(c appengine.Context, mr MapReducePipeline, reader SingleInputRea
 
 		if err != nil {
 			if _, ok := err.(FatalError); ok {
-				err = err.(FatalError).err
+				err = err.(FatalError).Err
 			} else {
 				err = tryAgainError{err}
 			}

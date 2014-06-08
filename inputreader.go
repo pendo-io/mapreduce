@@ -38,9 +38,13 @@ type SingleInputReader interface {
 	Next() (interface{}, error)
 }
 
+type singleLineReader struct {
+	r *bufio.Reader
+}
+
 type singleFileLineInputReader struct {
+	singleLineReader
 	path string
-	r    *bufio.Reader
 }
 
 type FileLineInputReader struct {
@@ -61,14 +65,17 @@ func newSingleFileLineInputReader(path string) (singleFileLineInputReader, error
 		return singleFileLineInputReader{}, err
 	}
 
-	return singleFileLineInputReader{path, bufio.NewReader(reader)}, nil
+	return singleFileLineInputReader{
+		singleLineReader: singleLineReader{bufio.NewReader(reader)},
+		path:             path,
+	}, nil
 }
 
 func (ir singleFileLineInputReader) String() string {
 	return fmt.Sprintf("SingleFileLineInputReader(%s)", ir.path)
 }
 
-func (ir singleFileLineInputReader) Next() (interface{}, error) {
+func (ir singleLineReader) Next() (interface{}, error) {
 	s, err := ir.r.ReadString('\n')
 	if err == io.EOF {
 		return nil, nil

@@ -36,14 +36,14 @@ func (j StringValueHandler) ValueLoad(val []byte) (interface{}, error) {
 	return string(val), nil
 }
 
-// StringValueHandler provides a ValueHandler for int values
-type IntValueHandler struct{}
+// Int64ValueHandler provides a ValueHandler for int values
+type Int64ValueHandler struct{}
 
-func (j IntValueHandler) ValueDump(a interface{}) ([]byte, error) {
+func (j Int64ValueHandler) ValueDump(a interface{}) ([]byte, error) {
 	return []byte(fmt.Sprintf("%d", a)), nil
 }
 
-func (j IntValueHandler) ValueLoad(val []byte) (interface{}, error) {
+func (j Int64ValueHandler) ValueLoad(val []byte) (interface{}, error) {
 	value, err := strconv.ParseInt(string(val), 10, 64)
 	return int(value), err
 }

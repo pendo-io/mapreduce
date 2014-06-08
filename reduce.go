@@ -86,6 +86,7 @@ func reduceTask(c appengine.Context, baseUrl string, mr MapReducePipeline, taskK
 		}
 		mr.PostStatus(c, fmt.Sprintf("%s/reducecomplete?taskKey=%s;status=done", baseUrl, taskKey.Encode()))
 	} else {
+		c.Errorf("reduce failed: %s", finalError)
 		errorType := "error"
 		if _, ok := finalError.(tryAgainError); ok {
 			// wasn't fatal, go for it
@@ -126,6 +127,7 @@ func ReduceFunc(c appengine.Context, mr MapReducePipeline, writer SingleOutputWr
 	}
 
 	if len(merger.items) == 0 {
+		c.Infof("No results to process from map")
 		for _, shardName := range shardNames {
 			if err := mr.RemoveIntermediate(c, shardName); err != nil {
 				c.Errorf("failed to remove intermediate file: %s", err.Error())
@@ -158,7 +160,7 @@ func ReduceFunc(c appengine.Context, mr MapReducePipeline, writer SingleOutputWr
 
 		if result, err := mr.Reduce(key, values, statusFunc); err != nil {
 			if _, ok := err.(FatalError); ok {
-				err = err.(FatalError).err
+				err = err.(FatalError).Err
 			} else {
 				err = tryAgainError{err}
 			}

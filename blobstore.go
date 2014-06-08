@@ -20,6 +20,24 @@ import (
 	"bufio"
 )
 
+type BlobstoreReader struct {
+	Keys []appengine.BlobKey
+}
+
+func (br BlobstoreReader) ReaderNames() ([]string, error) {
+	names := make([]string, len(br.Keys))
+	for i := range br.Keys {
+		names[i] = string(br.Keys[i])
+	}
+
+	return names, nil
+}
+
+func (br BlobstoreReader) ReaderFromName(c appengine.Context, name string) (SingleInputReader, error) {
+	reader := blobstore.NewReader(c, appengine.BlobKey(name))
+	return singleLineReader{bufio.NewReader(reader)}, nil
+}
+
 type BlobFileLineOutputWriter struct {
 	LineOutputWriter
 	key        appengine.BlobKey

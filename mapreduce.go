@@ -61,9 +61,9 @@ type Reducer interface {
 }
 
 // FatalError wraps an error. If Map or Reduce returns a FatalError the task will not be retried
-type FatalError struct{ err error }
+type FatalError struct{ Err error }
 
-func (fe FatalError) Error() string { return fe.err.Error() }
+func (fe FatalError) Error() string { return fe.Err.Error() }
 
 // tryAgainError is the inverse of a fatal error; we rework Map() and Reduce() in terms of tryAgainError because
 // it makes our internal errors not wrapped at all, making life simpler

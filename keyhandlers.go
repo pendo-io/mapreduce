@@ -15,7 +15,7 @@
 package mapreduce
 
 import (
-	"crypto/sha1"
+	"hash/crc32"
 )
 
 // KeyHandler must be implemented for each key type to enable shuffling and storing of map keys
@@ -61,12 +61,8 @@ func (s StringKeyHandler) Equal(a, b interface{}) bool {
 
 func (s StringKeyHandler) Shard(strInt interface{}, shardCount int) int {
 	str := strInt.(string)
-
-	h := sha1.New()
-	h.Write([]byte(str))
-	sum := h.Sum(nil)
-	hashVal := int(sum[0])<<8 | int(sum[1])
-	return hashVal % shardCount
+	sum := crc32.ChecksumIEEE([]byte(str))
+	return int(sum % uint32(shardCount))
 }
 
 func (s StringKeyHandler) SetShardParameters(jsonParameters string) {}
