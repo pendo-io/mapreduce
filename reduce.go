@@ -128,6 +128,7 @@ func ReduceFunc(c appengine.Context, mr MapReducePipeline, writer SingleOutputWr
 
 	if len(merger.items) == 0 {
 		c.Infof("No results to process from map")
+		writer.Close(c)
 		for _, shardName := range shardNames {
 			if err := mr.RemoveIntermediate(c, shardName); err != nil {
 				c.Errorf("failed to remove intermediate file: %s", err.Error())

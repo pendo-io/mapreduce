@@ -142,7 +142,11 @@ func jobList(w http.ResponseWriter, r *http.Request, skipId int64) {
 	if skipId != 0 {
 		for i, key := range keys {
 			if key.IntID() == skipId {
-				jobs = append(jobs[0:i], jobs[i+1:len(jobs)-1]...)
+				if i == len(jobs)-1 {
+					jobs = jobs[0:i]
+				} else {
+					jobs = append(jobs[0:i], jobs[i+1:len(jobs)-1]...)
+				}
 				break
 			}
 		}
