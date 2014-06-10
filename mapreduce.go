@@ -21,7 +21,6 @@ import (
 	"container/heap"
 	"fmt"
 	"net/http"
-	"net/url"
 	"strings"
 )
 
@@ -45,6 +44,10 @@ type Mapper interface {
 
 	// Called once with the job parameters for each mapper task
 	SetMapParameters(jsonParameters string)
+
+	// Called when the map is complete. Return is same as for Map()
+	// to the output writer
+	MapComplete(statusUpdate StatusUpdateFunc) ([]MappedData, error)
 }
 
 // Reducer defines the reduce function; it is called once for each key and is given a list
@@ -274,7 +277,11 @@ func (h urlHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func makeStatusUpdateFunc(c appengine.Context, pipeline MapReducePipeline, urlStr string, taskKey string) StatusUpdateFunc {
 	return func(format string, paramList ...interface{}) {
-		pipeline.PostStatus(c, fmt.Sprintf("%s?taskKey=%s;msg=%s", urlStr, taskKey,
-			url.QueryEscape(fmt.Sprintf(format, paramList...))))
+		msg := fmt.Sprintf(format, paramList...)
+		if key, err := datastore.DecodeKey(taskKey); err != nil {
+			c.Errorf("failed to decode task key for status: %s", err)
+		} else if _, err := updateTask(c, key, "", msg, nil); err != nil {
+			c.Errorf("failed to update task status: %s", err)
+		}
 	}
 }

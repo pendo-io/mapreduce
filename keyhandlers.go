@@ -16,6 +16,7 @@ package mapreduce
 
 import (
 	"hash/crc32"
+	"strconv"
 )
 
 // KeyHandler must be implemented for each key type to enable shuffling and storing of map keys
@@ -66,3 +67,36 @@ func (s StringKeyHandler) Shard(strInt interface{}, shardCount int) int {
 }
 
 func (s StringKeyHandler) SetShardParameters(jsonParameters string) {}
+
+// Int64KeyHandler provides a KeyHandler for int64 keys. A hash is used for computing the shards
+// to distribute evenly. We encode things are strings for readability.
+type Int64KeyHandler struct{}
+
+func (s Int64KeyHandler) KeyDump(a interface{}) []byte {
+	return []byte(strconv.FormatInt(a.(int64), 10))
+}
+
+func (s Int64KeyHandler) KeyLoad(a []byte) (interface{}, error) {
+	i, err := strconv.ParseInt(string(a), 10, 64)
+	if err != nil {
+		return nil, err
+	}
+
+	return i, nil
+}
+
+func (s Int64KeyHandler) Less(a, b interface{}) bool {
+	return a.(int64) < b.(int64)
+}
+
+func (s Int64KeyHandler) Equal(a, b interface{}) bool {
+	return a.(int64) == b.(int64)
+}
+
+func (s Int64KeyHandler) Shard(strInt interface{}, shardCount int) int {
+	i := strInt.(int64)
+	sum := crc32.ChecksumIEEE([]byte(strconv.FormatInt(i, 10)))
+	return int(sum % uint32(shardCount))
+}
+
+func (s Int64KeyHandler) SetShardParameters(jsonParameters string) {}

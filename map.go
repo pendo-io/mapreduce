@@ -192,6 +192,22 @@ func mapperFunc(c appengine.Context, mr MapReducePipeline, reader SingleInputRea
 		return nil, err
 	}
 
+	itemList, err := mr.MapComplete(statusFunc)
+	if err != nil {
+		if _, ok := err.(FatalError); ok {
+			err = err.(FatalError).Err
+		} else {
+			err = tryAgainError{err}
+		}
+
+		return nil, err
+	}
+
+	for _, item := range itemList {
+		shard := mr.Shard(item.Key, shardCount)
+		dataSets[shard].data = append(dataSets[shard].data, item)
+	}
+
 	names := make(map[string]int, len(dataSets))
 	for i := range dataSets {
 		c.Infof("storing shard %d, length %d", i, len(dataSets[i].data))
