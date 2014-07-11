@@ -30,7 +30,7 @@ type testUniqueWordCount struct {
 	FileLineInputReader
 	fileLineOutputWriter
 	StringKeyHandler
-	IntValueHandler
+	Int64ValueHandler
 	memoryIntermediateStorage
 	SimpleTasks
 
@@ -146,6 +146,10 @@ func (uwc testUniqueWordCount) Reduce(key interface{}, values []interface{}, sta
 }
 
 func (uwc testUniqueWordCount) ReduceComplete(status StatusUpdateFunc) ([]interface{}, error) {
+	return nil, nil
+}
+
+func (uwc testUniqueWordCount) MapComplete(status StatusUpdateFunc) ([]MappedData, error) {
 	return nil, nil
 }
 
