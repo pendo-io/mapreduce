@@ -163,12 +163,14 @@ func mapperFunc(c appengine.Context, mr MapReducePipeline, reader SingleInputRea
 	statusFunc StatusUpdateFunc) (map[string]int, error) {
 
 	dataSets := make([]mappedDataList, shardCount)
+	shardNames := make([][]string, shardCount)
 	for i := range dataSets {
 		dataSets[i] = mappedDataList{data: make([]MappedData, 0), compare: mr}
 	}
 
 	var err error
 	var item interface{}
+	size := 0
 	for item, err = reader.Next(); item != nil && err == nil; item, err = reader.Next() {
 		itemList, err := mr.Map(item, statusFunc)
 
@@ -185,6 +187,21 @@ func mapperFunc(c appengine.Context, mr MapReducePipeline, reader SingleInputRea
 		for _, item := range itemList {
 			shard := mr.Shard(item.Key, shardCount)
 			dataSets[shard].data = append(dataSets[shard].data, item)
+		}
+
+		val, _ := mr.ValueDump(item)
+		size += len(val)
+
+		if size > 2*1024*1024 {
+			if names, err := writeShards(c, mr, dataSets); err != nil {
+				return nil, err
+			} else {
+				for name, shard := range names {
+					shardNames[shard] = append(shardNames[shard], name)
+				}
+
+				size = 0
+			}
 		}
 	}
 
@@ -208,6 +225,31 @@ func mapperFunc(c appengine.Context, mr MapReducePipeline, reader SingleInputRea
 		dataSets[shard].data = append(dataSets[shard].data, item)
 	}
 
+	if names, err := writeShards(c, mr, dataSets); err != nil {
+		return nil, err
+	} else {
+		for name, shard := range names {
+			shardNames[shard] = append(shardNames[shard], name)
+		}
+	}
+
+	finalNames := make(map[string]int)
+	for shard, nameList := range shardNames {
+		if len(nameList) == 0 {
+			continue
+		}
+
+		if name, err := mergeIntermediate(c, mr, mr, nameList); err != nil {
+			return nil, err
+		} else {
+			finalNames[name] = shard
+		}
+	}
+
+	return finalNames, nil
+}
+
+func writeShards(c appengine.Context, mr MapReducePipeline, dataSets []mappedDataList) (map[string]int, error) {
 	names := make(map[string]int, len(dataSets))
 	for i := range dataSets {
 		c.Infof("storing shard %d, length %d", i, len(dataSets[i].data))

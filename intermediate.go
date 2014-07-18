@@ -148,6 +148,8 @@ func (r *ReaderIterator) Next() (MappedData, bool, error) {
 func mergeIntermediate(c appengine.Context, intStorage IntermediateStorage, handler KeyValueHandler, names []string) (string, error) {
 	if len(names) == 0 {
 		return "", fmt.Errorf("no files to merge")
+	} else if len(names) == 1 {
+		return names[0], nil
 	}
 
 	merger := newMerger(handler)
