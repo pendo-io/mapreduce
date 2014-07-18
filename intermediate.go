@@ -143,29 +143,3 @@ func (r *ReaderIterator) Next() (MappedData, bool, error) {
 
 	return m, true, nil
 }
-
-func copyItemsToWriter(items []MappedData, handler KeyValueHandler, w io.Writer) error {
-	var jsonItem fileJsonHolder
-	for i := range items {
-		var err error
-
-		jsonItem.Key = string(handler.KeyDump(items[i].Key))
-		if value, err := handler.ValueDump(items[i].Value); err != nil {
-			return err
-		} else {
-			jsonItem.Value = string(value)
-		}
-
-		bytes, err := json.Marshal(jsonItem)
-		if err != nil {
-			return err
-		}
-
-		bytes = append(bytes, '\n')
-		if _, err := w.Write(bytes); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
