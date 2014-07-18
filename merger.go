@@ -36,19 +36,45 @@ func (a *mappedDataMerger) Pop() interface{} {
 	return x
 }
 
-func (s *mappedDataMerger) next() (MappedData, error) {
-	if !s.inited {
-		heap.Init(s)
-		s.inited = true
+func (merger *mappedDataMerger) next() (*MappedData, error) {
+	if len(merger.items) == 0 {
+		return nil, nil
 	}
 
-	item := heap.Pop(s).(mappedDataMergeItem)
+	if !merger.inited {
+		heap.Init(merger)
+		merger.inited = true
+	}
+
+	item := heap.Pop(merger).(mappedDataMergeItem)
 
 	if newItem, exists, err := item.iterator.Next(); err != nil {
-		return MappedData{}, err
+		return nil, err
 	} else if exists {
-		heap.Push(s, mappedDataMergeItem{item.iterator, newItem})
+		heap.Push(merger, mappedDataMergeItem{item.iterator, newItem})
 	}
 
-	return item.datum, nil
+	return &item.datum, nil
+}
+
+func (merger *mappedDataMerger) empty() bool {
+	return len(merger.items) == 0
+}
+
+func newMerger(comparator KeyHandler) *mappedDataMerger {
+	return &mappedDataMerger{
+		items:   make([]mappedDataMergeItem, 0),
+		compare: comparator,
+	}
+}
+
+func (merger *mappedDataMerger) addSource(iterator IntermediateStorageIterator) error {
+	firstItem, exists, err := iterator.Next()
+	if err != nil {
+		return err
+	} else if exists {
+		merger.items = append(merger.items, mappedDataMergeItem{iterator, firstItem})
+	}
+
+	return nil
 }

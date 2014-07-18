@@ -103,12 +103,7 @@ func reduceTask(c appengine.Context, baseUrl string, mr MapReducePipeline, taskK
 func ReduceFunc(c appengine.Context, mr MapReducePipeline, writer SingleOutputWriter, shardNames []string,
 	statusFunc StatusUpdateFunc) error {
 
-	inputCount := len(shardNames)
-
-	merger := mappedDataMerger{
-		items:   make([]mappedDataMergeItem, 0, inputCount),
-		compare: mr,
-	}
+	merger := newMerger(mr)
 
 	for _, shardName := range shardNames {
 		iterator, err := mr.Iterator(c, shardName, mr)
@@ -116,17 +111,15 @@ func ReduceFunc(c appengine.Context, mr MapReducePipeline, writer SingleOutputWr
 			return err
 		}
 
-		firstItem, exists, err := iterator.Next()
-		if err != nil {
-			return err
-		} else if !exists {
-			continue
-		}
-
-		merger.items = append(merger.items, mappedDataMergeItem{iterator, firstItem})
+		merger.addSource(iterator)
 	}
 
-	if len(merger.items) == 0 {
+	values := make([]interface{}, 1)
+	var key interface{}
+
+	if first, err := merger.next(); err != nil {
+		return err
+	} else if first == nil {
 		c.Infof("No results to process from map")
 		writer.Close(c)
 		for _, shardName := range shardNames {
@@ -136,19 +129,12 @@ func ReduceFunc(c appengine.Context, mr MapReducePipeline, writer SingleOutputWr
 		}
 
 		return nil
-	}
-
-	values := make([]interface{}, 1)
-	var key interface{}
-
-	if first, err := merger.next(); err != nil {
-		return err
 	} else {
 		key = first.Key
 		values[0] = first.Value
 	}
 
-	for len(merger.items) > 0 {
+	for !merger.empty() {
 		item, err := merger.next()
 		if err != nil {
 			return err
