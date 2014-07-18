@@ -87,6 +87,7 @@ func (m *memoryIntermediateStorage) Iterator(c appengine.Context, name string, h
 
 func (m *memoryIntermediateStorage) RemoveIntermediate(c appengine.Context, name string) error {
 	// eh. whatever.
+	delete(m.items, name)
 	return nil
 }
 
@@ -142,4 +143,47 @@ func (r *ReaderIterator) Next() (MappedData, bool, error) {
 	}
 
 	return m, true, nil
+}
+
+func mergeIntermediate(c appengine.Context, intStorage IntermediateStorage, handler KeyValueHandler, names []string) (string, error) {
+	if len(names) == 0 {
+		return "", fmt.Errorf("no files to merge")
+	}
+
+	merger := newMerger(handler)
+
+	for _, shardName := range names {
+		iterator, err := intStorage.Iterator(c, shardName, handler)
+		if err != nil {
+			return "", err
+		}
+
+		merger.addSource(iterator)
+	}
+
+	w, err := intStorage.CreateIntermediate(c, handler)
+	if err != nil {
+		return "", err
+	}
+
+	for !merger.empty() {
+		item, err := merger.next()
+		if err != nil {
+			return "", err
+		}
+
+		if err := w.WriteMappedData(*item); err != nil {
+			return "", err
+		}
+	}
+
+	w.Close(c)
+
+	for _, shardName := range names {
+		if err := intStorage.RemoveIntermediate(c, shardName); err != nil {
+			c.Errorf("failed to remove intermediate file: %s", err.Error())
+		}
+	}
+
+	return w.ToName(), nil
 }
