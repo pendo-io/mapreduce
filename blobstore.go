@@ -81,7 +81,7 @@ func (m BlobstoreWriter) WriterFromName(c appengine.Context, name string) (Singl
 	}
 
 	return &BlobFileLineOutputWriter{
-		LineOutputWriter: LineOutputWriter{w},
+		LineOutputWriter: LineOutputWriter{w: w},
 		blobWriter:       w,
 	}, nil
 }
@@ -89,19 +89,28 @@ func (m BlobstoreWriter) WriterFromName(c appengine.Context, name string) (Singl
 type BlobIntermediateStorage struct {
 }
 
-func (fis BlobIntermediateStorage) Store(c appengine.Context, items []MappedData, handler KeyValueHandler) (string, error) {
-
-	if writer, err := blobstore.Create(c, "text/plain"); err != nil {
-		return "", err
-	} else if err := copyItemsToWriter(items, handler, writer); err != nil {
-		return "", err
-	} else if err := writer.Close(); err != nil {
-		return "", err
-	} else if key, err := writer.Key(); err != nil {
-		return "", err
+func (fis *BlobIntermediateStorage) CreateIntermediate(c appengine.Context, handler KeyValueHandler) (SingleIntermediateStorageWriter, error) {
+	if w, err := blobstore.Create(c, "text/plain"); err != nil {
+		return nil, err
 	} else {
-		return string(key), nil
+		return &BlobFileLineOutputWriter{
+			LineOutputWriter: LineOutputWriter{w: w, handler: handler},
+			blobWriter:       w,
+		}, nil
 	}
+}
+
+func (fis BlobIntermediateStorage) Store(c appengine.Context, items []MappedData, handler KeyValueHandler) (string, error) {
+	w, _ := fis.CreateIntermediate(c, handler)
+	for i := range items {
+		if err := w.WriteMappedData(items[i]); err != nil {
+			return "", err
+		}
+	}
+
+	w.Close(c)
+
+	return w.ToName(), nil
 }
 
 func (fis BlobIntermediateStorage) Iterator(c appengine.Context, name string, handler KeyValueHandler) (IntermediateStorageIterator, error) {

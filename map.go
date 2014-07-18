@@ -212,12 +212,23 @@ func mapperFunc(c appengine.Context, mr MapReducePipeline, reader SingleInputRea
 	for i := range dataSets {
 		c.Infof("storing shard %d, length %d", i, len(dataSets[i].data))
 		sort.Sort(dataSets[i])
-		if name, err := mr.Store(c, dataSets[i].data, mr); err != nil {
-			err = fmt.Errorf("error writing to intermediate storage: %s", err)
-			return nil, err
-		} else {
-			names[name] = i
+
+		outFile, err := mr.CreateIntermediate(c, mr)
+		if err != nil {
+			return nil, fmt.Errorf("error creating file in intermediate storage: %s", err)
 		}
+
+		for itemIdx := range dataSets[i].data {
+			if err := outFile.WriteMappedData(dataSets[i].data[itemIdx]); err != nil {
+				outFile.Close(c)
+				return nil, fmt.Errorf("error writing to intermediate storage: %s", err)
+			}
+		}
+
+		outFile.Close(c)
+		name := outFile.ToName()
+
+		names[name] = i
 	}
 
 	return names, nil

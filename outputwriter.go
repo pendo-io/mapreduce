@@ -16,6 +16,7 @@ package mapreduce
 
 import (
 	"appengine"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -46,11 +47,38 @@ type SingleOutputWriter interface {
 }
 
 type LineOutputWriter struct {
-	w io.Writer
+	w       io.Writer
+	handler KeyValueHandler
 }
 
 func (o LineOutputWriter) Write(data interface{}) error {
 	o.w.Write([]byte(fmt.Sprintf("%s\n", data)))
+	return nil
+}
+
+func (o LineOutputWriter) WriteMappedData(item MappedData) error {
+	if o.handler == nil {
+		return fmt.Errorf("WriteMappedData() called without a KeyValueHandler set")
+	}
+
+	var jsonItem fileJsonHolder
+	jsonItem.Key = string(o.handler.KeyDump(item.Key))
+	if value, err := o.handler.ValueDump(item.Value); err != nil {
+		return err
+	} else {
+		jsonItem.Value = string(value)
+	}
+
+	bytes, err := json.Marshal(jsonItem)
+	if err != nil {
+		return err
+	}
+
+	bytes = append(bytes, '\n')
+	if _, err := o.w.Write(bytes); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -72,7 +100,7 @@ func newSingleFileLineOutputWriter(path string) (SingleOutputWriter, error) {
 		return singleFileLineOutputWriter{}, err
 	}
 
-	return singleFileLineOutputWriter{path: path, LineOutputWriter: LineOutputWriter{w}}, nil
+	return singleFileLineOutputWriter{path: path, LineOutputWriter: LineOutputWriter{w: w}}, nil
 }
 
 // NilOutputWriter collects output and throws it away. Useful for reduce tasks which only have
