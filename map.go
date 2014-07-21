@@ -242,10 +242,19 @@ func mapperFunc(c appengine.Context, mr MapReducePipeline, reader SingleInputRea
 			continue
 		}
 
-		if name, err := mergeIntermediate(c, mr, mr, nameList); err != nil {
-			return nil, err
-		} else {
-			finalNames[name] = shard
+		var err error
+		for try := 0; try < 3; try++ {
+			var name string
+			if name, err = mergeIntermediate(c, mr, mr, nameList); err != nil {
+				c.Infof("merge failed shard %d try %d: %s", shard, try, err)
+			} else {
+				finalNames[name] = shard
+				break
+			}
+		}
+
+		if err != nil {
+			return nil, tryAgainError{err}
 		}
 	}
 
