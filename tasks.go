@@ -335,6 +335,8 @@ func retryTask(c appengine.Context, pipeline MapReducePipeline, taskKey *datasto
 		return err
 	}
 
+	c.Infof("retrying task %d/%d", task.Retries, job.RetryCount)
+
 	return nil
 }
 

@@ -168,6 +168,7 @@ func mergeIntermediate(c appengine.Context, intStorage IntermediateStorage, hand
 		return "", err
 	}
 
+	rows := 0
 	for !merger.empty() {
 		item, err := merger.next()
 		if err != nil {
@@ -177,9 +178,13 @@ func mergeIntermediate(c appengine.Context, intStorage IntermediateStorage, hand
 		if err := w.WriteMappedData(*item); err != nil {
 			return "", err
 		}
+
+		rows++
 	}
 
 	w.Close(c)
+
+	c.Infof("merged %d rows for a single shard", rows)
 
 	for _, shardName := range names {
 		if err := intStorage.RemoveIntermediate(c, shardName); err != nil {

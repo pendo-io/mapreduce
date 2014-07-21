@@ -194,13 +194,16 @@ func mapperFunc(c appengine.Context, mr MapReducePipeline, reader SingleInputRea
 
 		if size > 2*1024*1024 {
 			if names, err := writeShards(c, mr, dataSets); err != nil {
-				return nil, err
+				return nil, tryAgainError{err}
 			} else {
 				for name, shard := range names {
 					shardNames[shard] = append(shardNames[shard], name)
 				}
+			}
 
-				size = 0
+			size = 0
+			for shard := range dataSets {
+				dataSets[shard].data = dataSets[shard].data[0:0]
 			}
 		}
 	}
@@ -226,7 +229,7 @@ func mapperFunc(c appengine.Context, mr MapReducePipeline, reader SingleInputRea
 	}
 
 	if names, err := writeShards(c, mr, dataSets); err != nil {
-		return nil, err
+		return nil, tryAgainError{err}
 	} else {
 		for name, shard := range names {
 			shardNames[shard] = append(shardNames[shard], name)
@@ -251,8 +254,8 @@ func mapperFunc(c appengine.Context, mr MapReducePipeline, reader SingleInputRea
 
 func writeShards(c appengine.Context, mr MapReducePipeline, dataSets []mappedDataList) (map[string]int, error) {
 	names := make(map[string]int, len(dataSets))
+	count := 0
 	for i := range dataSets {
-		c.Infof("storing shard %d, length %d", i, len(dataSets[i].data))
 		sort.Sort(dataSets[i])
 
 		outFile, err := mr.CreateIntermediate(c, mr)
@@ -271,7 +274,10 @@ func writeShards(c appengine.Context, mr MapReducePipeline, dataSets []mappedDat
 		name := outFile.ToName()
 
 		names[name] = i
+		count += len(dataSets[i].data)
 	}
+
+	c.Infof("stored %d shards, average length %d", len(dataSets), count/len(dataSets))
 
 	return names, nil
 }

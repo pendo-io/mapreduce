@@ -18,6 +18,7 @@ import (
 	"appengine"
 	"appengine/blobstore"
 	"bufio"
+	"time"
 )
 
 type BlobstoreReader struct {
@@ -75,7 +76,7 @@ func (m BlobstoreWriter) WriterFromName(c appengine.Context, name string) (Singl
 		panic("bad name for blobstore writer")
 	}
 
-	w, err := blobstore.Create(c, "text/plain")
+	w, err := blobstore.Create(appengine.Timeout(c, 15*time.Second), "text/plain")
 	if err != nil {
 		return nil, err
 	}
