@@ -42,13 +42,17 @@ func (m fileLineOutputWriter) WriterFromName(c appengine.Context, name string) (
 
 type SingleOutputWriter interface {
 	Write(data interface{}) error
-	Close(c appengine.Context)
+	Close(c appengine.Context) error
 	ToName() string
 }
 
 type LineOutputWriter struct {
-	w       io.Writer
+	w       io.WriteCloser
 	handler KeyValueHandler
+}
+
+func NewLineOutputWriter(w io.WriteCloser, handler KeyValueHandler) LineOutputWriter {
+	return LineOutputWriter{w, handler}
 }
 
 func (o LineOutputWriter) Write(data interface{}) error {
@@ -87,7 +91,8 @@ type singleFileLineOutputWriter struct {
 	path string
 }
 
-func (o LineOutputWriter) Close(c appengine.Context) {
+func (o LineOutputWriter) Close(c appengine.Context) error {
+	return o.w.Close()
 }
 
 func (o singleFileLineOutputWriter) ToName() string {
@@ -128,7 +133,8 @@ func (n nilSingleOutputWriter) Write(data interface{}) error {
 	return nil
 }
 
-func (n nilSingleOutputWriter) Close(c appengine.Context) {
+func (n nilSingleOutputWriter) Close(c appengine.Context) error {
+	return nil
 }
 
 func (n nilSingleOutputWriter) ToName() string {

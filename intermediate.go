@@ -30,7 +30,7 @@ type KeyValueHandler interface {
 // this overlaps a great deal with SingleOutputWriter; they often share an implementation
 type SingleIntermediateStorageWriter interface {
 	WriteMappedData(data MappedData) error
-	Close(c appengine.Context)
+	Close(c appengine.Context) error
 	ToName() string
 }
 
@@ -38,6 +38,7 @@ type IntermediateStorageIterator interface {
 	// Returns mapped data item, a bool saying if it's valid, and an error if one occurred
 	// probably cause use error = EOF instead, but we don't
 	Next() (MappedData, bool, error)
+	Close() error
 }
 
 // IntermediateStorage defines how intermediare results are saved and read. If keys need to be serialized
@@ -51,6 +52,10 @@ type IntermediateStorage interface {
 type arrayIterator struct {
 	data      []MappedData
 	nextIndex int
+}
+
+func (sf *arrayIterator) Close() error {
+	return nil
 }
 
 func (sf *arrayIterator) Next() (MappedData, bool, error) {
@@ -96,7 +101,7 @@ type memoryIntermediateStorageWriter struct {
 	storage *memoryIntermediateStorage
 }
 
-func (w *memoryIntermediateStorageWriter) Close(c appengine.Context) {}
+func (w *memoryIntermediateStorageWriter) Close(c appengine.Context) error { return nil }
 
 func (w *memoryIntermediateStorageWriter) WriteMappedData(data MappedData) error {
 	w.storage.add(w.name, data)
@@ -113,12 +118,25 @@ type fileJsonHolder struct {
 }
 
 type ReaderIterator struct {
-	reader  *bufio.Reader
-	handler KeyValueHandler
+	bufReader *bufio.Reader
+	closer    io.ReadCloser
+	handler   KeyValueHandler
+}
+
+func NewReaderIterator(reader io.ReadCloser, handler KeyValueHandler) IntermediateStorageIterator {
+	return &ReaderIterator{
+		bufReader: bufio.NewReader(reader),
+		closer:    reader,
+		handler:   handler,
+	}
+}
+
+func (r *ReaderIterator) Close() error {
+	return r.closer.Close()
 }
 
 func (r *ReaderIterator) Next() (MappedData, bool, error) {
-	line, err := r.reader.ReadBytes('\n')
+	line, err := r.bufReader.ReadBytes('\n')
 	if err == io.EOF {
 		return MappedData{}, false, nil
 	}
@@ -152,6 +170,13 @@ func mergeIntermediate(c appengine.Context, intStorage IntermediateStorage, hand
 		return names[0], nil
 	}
 
+	toClose := make([]io.Closer, 0, len(names))
+	defer func() {
+		for _, c := range toClose {
+			c.Close()
+		}
+	}()
+
 	merger := newMerger(handler)
 
 	for _, shardName := range names {
@@ -161,6 +186,7 @@ func mergeIntermediate(c appengine.Context, intStorage IntermediateStorage, hand
 		}
 
 		merger.addSource(iterator)
+		toClose = append(toClose, iterator)
 	}
 
 	w, err := intStorage.CreateIntermediate(c, handler)
@@ -182,7 +208,9 @@ func mergeIntermediate(c appengine.Context, intStorage IntermediateStorage, hand
 		rows++
 	}
 
-	w.Close(c)
+	if err := w.Close(c); err != nil {
+		return "", fmt.Errorf("failed to close merge file: %s", err)
+	}
 
 	c.Infof("merged %d rows for a single shard", rows)
 

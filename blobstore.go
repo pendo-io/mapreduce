@@ -17,7 +17,7 @@ package mapreduce
 import (
 	"appengine"
 	"appengine/blobstore"
-	"bufio"
+	"io"
 	"time"
 )
 
@@ -34,9 +34,15 @@ func (br BlobstoreReader) ReaderNames() ([]string, error) {
 	return names, nil
 }
 
+type closeWrapper struct {
+	io.Reader
+}
+
+func (c *closeWrapper) Close() error { return nil }
+
 func (br BlobstoreReader) ReaderFromName(c appengine.Context, name string) (SingleInputReader, error) {
 	reader := blobstore.NewReader(c, appengine.BlobKey(name))
-	return singleLineReader{bufio.NewReader(reader)}, nil
+	return NewSingleLineInputReader(&closeWrapper{reader}), nil
 }
 
 type BlobFileLineOutputWriter struct {
@@ -45,9 +51,10 @@ type BlobFileLineOutputWriter struct {
 	blobWriter *blobstore.Writer
 }
 
-func (b *BlobFileLineOutputWriter) Close(c appengine.Context) {
-	b.blobWriter.Close()
+func (b *BlobFileLineOutputWriter) Close(c appengine.Context) error {
+	err := b.LineOutputWriter.Close(c)
 	b.key, _ = b.blobWriter.Key()
+	return err
 }
 
 func (b *BlobFileLineOutputWriter) ToName() string {
@@ -101,23 +108,10 @@ func (fis *BlobIntermediateStorage) CreateIntermediate(c appengine.Context, hand
 	}
 }
 
-func (fis BlobIntermediateStorage) Store(c appengine.Context, items []MappedData, handler KeyValueHandler) (string, error) {
-	w, _ := fis.CreateIntermediate(c, handler)
-	for i := range items {
-		if err := w.WriteMappedData(items[i]); err != nil {
-			return "", err
-		}
-	}
-
-	w.Close(c)
-
-	return w.ToName(), nil
-}
-
 func (fis BlobIntermediateStorage) Iterator(c appengine.Context, name string, handler KeyValueHandler) (IntermediateStorageIterator, error) {
 	f := blobstore.NewReader(c, appengine.BlobKey(name))
 
-	return &ReaderIterator{bufio.NewReader(f), handler}, nil
+	return NewReaderIterator(&closeWrapper{f}, handler), nil
 }
 
 func (fis BlobIntermediateStorage) RemoveIntermediate(c appengine.Context, name string) error {

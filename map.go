@@ -208,6 +208,8 @@ func mapperFunc(c appengine.Context, mr MapReducePipeline, reader SingleInputRea
 		}
 	}
 
+	reader.Close()
+
 	if err != nil {
 		return nil, err
 	}

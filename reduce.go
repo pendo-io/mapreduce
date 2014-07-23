@@ -18,6 +18,7 @@ import (
 	"appengine"
 	"appengine/datastore"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"runtime"
@@ -105,6 +106,13 @@ func ReduceFunc(c appengine.Context, mr MapReducePipeline, writer SingleOutputWr
 
 	merger := newMerger(mr)
 
+	toClose := make([]io.Closer, 0, len(shardNames))
+	defer func() {
+		for _, c := range toClose {
+			c.Close()
+		}
+	}()
+
 	for _, shardName := range shardNames {
 		iterator, err := mr.Iterator(c, shardName, mr)
 		if err != nil {
@@ -112,6 +120,7 @@ func ReduceFunc(c appengine.Context, mr MapReducePipeline, writer SingleOutputWr
 		}
 
 		merger.addSource(iterator)
+		toClose = append(toClose, iterator)
 	}
 
 	values := make([]interface{}, 1)
