@@ -40,6 +40,7 @@ func reduceCompleteTask(c appengine.Context, pipeline MapReducePipeline, taskKey
 	}
 
 	if !done {
+		c.Infof("reduce %d complete: %d jobs remaining", taskKey.IntID(), job.TasksRunning)
 		return
 	}
 

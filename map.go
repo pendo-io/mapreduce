@@ -45,6 +45,7 @@ func mapCompleteTask(c appengine.Context, pipeline MapReducePipeline, taskKey *d
 	// of the current stage
 
 	if !done {
+		c.Infof("map %d complete: %d jobs remaining", taskKey.IntID(), job.TasksRunning)
 		return
 	}
 
