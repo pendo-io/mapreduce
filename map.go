@@ -185,13 +185,13 @@ func mapperFunc(c appengine.Context, mr MapReducePipeline, reader SingleInputRea
 			return nil, err
 		}
 
-		for _, item := range itemList {
-			shard := mr.Shard(item.Key, shardCount)
-			dataSets[shard].data = append(dataSets[shard].data, item)
-		}
+		for _, mappedItem := range itemList {
+			shard := mr.Shard(mappedItem.Key, shardCount)
+			dataSets[shard].data = append(dataSets[shard].data, mappedItem)
 
-		val, _ := mr.ValueDump(item)
-		size += len(val)
+			val, _ := mr.ValueDump(mappedItem.Value)
+			size += len(val)
+		}
 
 		if size > 2*1024*1024 {
 			if names, err := writeShards(c, mr, dataSets); err != nil {
