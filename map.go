@@ -185,7 +185,7 @@ func mapperFunc(c appengine.Context, mr MapReducePipeline, reader SingleInputRea
 	statusFunc StatusUpdateFunc) (map[string]int, error) {
 
 	dataSets := make([]mappedDataList, shardCount)
-	shardNames := make([][]string, shardCount)
+	spills := make([]spill, 0)
 	for i := range dataSets {
 		dataSets[i] = mappedDataList{data: make([]MappedData, 0), compare: mr}
 	}
@@ -215,12 +215,10 @@ func mapperFunc(c appengine.Context, mr MapReducePipeline, reader SingleInputRea
 		}
 
 		if size > 2*1024*1024 {
-			if names, err := writeShards(c, mr, dataSets); err != nil {
+			if spill, err := writeSpill(c, mr, mr, dataSets); err != nil {
 				return nil, tryAgainError{err}
 			} else {
-				for name, shard := range names {
-					shardNames[shard] = append(shardNames[shard], name)
-				}
+				spills = append(spills, spill)
 			}
 
 			size = 0
@@ -252,35 +250,29 @@ func mapperFunc(c appengine.Context, mr MapReducePipeline, reader SingleInputRea
 		dataSets[shard].data = append(dataSets[shard].data, item)
 	}
 
-	if names, err := writeShards(c, mr, dataSets); err != nil {
+	if spill, err := writeSpill(c, mr, mr, dataSets); err != nil {
 		return nil, tryAgainError{err}
 	} else {
-		for name, shard := range names {
-			shardNames[shard] = append(shardNames[shard], name)
-		}
+		spills = append(spills, spill)
 	}
 
 	finalNames := make(map[string]int)
-	for shard, nameList := range shardNames {
-		if len(nameList) == 0 {
-			continue
-		}
-
-		var err error
-		for try := 0; try < 3; try++ {
-			var name string
-			if name, err = mergeIntermediate(c, mr, mr, nameList); err != nil {
-				c.Infof("merge failed shard %d try %d: %s", shard, try, err)
-			} else {
+	for try := 0; try < 5; try++ {
+		if names, err := mergeSpills(c, mr, mr, spills); err != nil {
+			c.Infof("spill merge failed try %d: %s", try, err)
+		} else {
+			for shard, name := range names {
 				finalNames[name] = shard
-				break
 			}
-		}
-
-		if err != nil {
-			return nil, tryAgainError{err}
+			break
 		}
 	}
+
+	if err != nil {
+		return nil, tryAgainError{err}
+	}
+
+	c.Infof("finalNames: %#v", finalNames)
 
 	return finalNames, nil
 }

@@ -130,7 +130,7 @@ func ReduceFunc(c appengine.Context, mr MapReducePipeline, writer SingleOutputWr
 	for _, shardName := range shardNames {
 		iterator, err := mr.Iterator(c, shardName, mr)
 		if err != nil {
-			return err
+			return fmt.Errorf("cannot open intermediate file %s: %s", shardName, err)
 		}
 
 		merger.addSource(iterator)

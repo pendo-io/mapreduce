@@ -16,8 +16,6 @@ package mapreduce
 
 import (
 	ck "gopkg.in/check.v1"
-	"math/rand"
-	"time"
 )
 
 func (mrt *MapreduceTests) TestIntermediateMerge(c *ck.C) {
@@ -28,30 +26,30 @@ func (mrt *MapreduceTests) TestIntermediateMerge(c *ck.C) {
 		Int64ValueHandler
 	}{}
 
-	rand.Seed(int64(time.Now().Nanosecond()))
-
-	names := make([]string, 0)
+	merger := newMerger(handler)
 	for i := 0; i < 5; i++ {
 		w, _ := memStorage.CreateIntermediate(mrt.Context, handler)
-		for j := 0; j < 10000; j++ {
-			w.WriteMappedData(MappedData{Key: int64(j * i), Value: int64(i)})
+		for j := 0; j < 1000; j++ {
+			w.WriteMappedData(MappedData{Key: int64(j*5 + i), Value: int64(i)})
 		}
 
 		w.Close(mrt.Context)
-		names = append(names, w.ToName())
+
+		iterator, _ := memStorage.Iterator(mrt.Context, w.ToName(), handler)
+		merger.addSource(iterator)
 	}
 
-	name, err := mergeIntermediate(mrt.Context, memStorage, handler, names)
-	c.Assert(err, ck.IsNil)
-	c.Assert(len(memStorage.items), ck.Equals, 1)
+	name, err := mergeIntermediate(mrt.Context, memStorage, handler, merger)
 
 	iter, err := memStorage.Iterator(mrt.Context, name, handler)
 	c.Assert(err, ck.IsNil)
 
-	next := 0
-	for data, done, err := iter.Next(); !done && err == nil; data, done, err = iter.Next() {
+	next := int64(0)
+	for data, valid, err := iter.Next(); valid && err == nil; data, valid, err = iter.Next() {
 		c.Assert(data.Key, ck.Equals, next)
 		next++
 	}
+
+	c.Assert(next, ck.Equals, int64(5000))
 
 }
