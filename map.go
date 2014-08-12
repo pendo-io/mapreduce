@@ -22,7 +22,6 @@ import (
 	"net/http"
 	"net/url"
 	"runtime"
-	"sort"
 	"strconv"
 )
 
@@ -193,6 +192,7 @@ func mapperFunc(c appengine.Context, mr MapReducePipeline, reader SingleInputRea
 	var err error
 	var item interface{}
 	size := 0
+	count := 0
 	for item, err = reader.Next(); item != nil && err == nil; item, err = reader.Next() {
 		itemList, err := mr.Map(item, statusFunc)
 
@@ -212,16 +212,20 @@ func mapperFunc(c appengine.Context, mr MapReducePipeline, reader SingleInputRea
 
 			val, _ := mr.ValueDump(mappedItem.Value)
 			size += len(val)
+			count++
 		}
 
-		if size > 2*1024*1024 {
+		if size > 4*1024*1024 {
 			if spill, err := writeSpill(c, mr, mr, dataSets); err != nil {
 				return nil, tryAgainError{err}
 			} else {
 				spills = append(spills, spill)
 			}
 
+			c.Infof("wrote spill of %d items", count)
+
 			size = 0
+			count = 0
 			for shard := range dataSets {
 				dataSets[shard].data = dataSets[shard].data[0:0]
 			}
@@ -275,34 +279,4 @@ func mapperFunc(c appengine.Context, mr MapReducePipeline, reader SingleInputRea
 	c.Infof("finalNames: %#v", finalNames)
 
 	return finalNames, nil
-}
-
-func writeShards(c appengine.Context, mr MapReducePipeline, dataSets []mappedDataList) (map[string]int, error) {
-	names := make(map[string]int, len(dataSets))
-	count := 0
-	for i := range dataSets {
-		sort.Sort(dataSets[i])
-
-		outFile, err := mr.CreateIntermediate(c, mr)
-		if err != nil {
-			return nil, fmt.Errorf("error creating file in intermediate storage: %s", err)
-		}
-
-		for itemIdx := range dataSets[i].data {
-			if err := outFile.WriteMappedData(dataSets[i].data[itemIdx]); err != nil {
-				outFile.Close(c)
-				return nil, fmt.Errorf("error writing to intermediate storage: %s", err)
-			}
-		}
-
-		outFile.Close(c)
-		name := outFile.ToName()
-
-		names[name] = i
-		count += len(dataSets[i].data)
-	}
-
-	c.Infof("stored %d shards, average length %d", len(dataSets), count/len(dataSets))
-
-	return names, nil
 }
