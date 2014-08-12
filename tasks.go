@@ -213,6 +213,16 @@ func taskComplete(c appengine.Context, jobKey *datastore.Key, expectedStage, nex
 	return
 }
 
+func getTask(c appengine.Context, taskKey *datastore.Key) (JobTask, error) {
+	var task JobTask
+
+	if err := datastore.Get(c, taskKey, &task); err != nil {
+		return JobTask{}, err
+	}
+
+	return task, nil
+}
+
 func updateTask(c appengine.Context, taskKey *datastore.Key, status TaskStatus, info string, result interface{}) (JobTask, error) {
 	var task JobTask
 

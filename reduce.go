@@ -63,6 +63,19 @@ func reduceTask(c appengine.Context, baseUrl string, mr MapReducePipeline, taskK
 		}
 	}()
 
+	if task, err := getTask(c, taskKey); err != nil {
+		err := fmt.Errorf("failed to get reduce task status: %s", err)
+		c.Criticalf("%s", err)
+		mr.PostStatus(c, fmt.Sprintf("%s/reducecomplete?taskKey=%s;status=error;error=%s", baseUrl, taskKey.Encode(), url.QueryEscape(err.Error())))
+	} else if task.Status == TaskStatusRunning {
+		// we think we're already running, but we got here. that means we failed
+		// unexpectedly.
+		errorType := "again"
+		err := "restarted unexpectedly"
+		mr.PostStatus(c, fmt.Sprintf("%s/reducecomplete?taskKey=%s;status=%s;error=%s", baseUrl, taskKey.Encode(), errorType, url.QueryEscape(err)))
+		return
+	}
+
 	task, err := updateTask(c, taskKey, TaskStatusRunning, "", nil)
 	if err != nil {
 		err := fmt.Errorf("failed to update reduce task to running: %s", err)
