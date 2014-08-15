@@ -165,11 +165,17 @@ func Run(c appengine.Context, job MapReduceJob) (int64, error) {
 	}
 
 	if err := createTasks(c, jobKey, taskKeys, tasks, StageMapping); err != nil {
+		if _, innerErr := updateJobStage(c, jobKey, StageFailed); err != nil {
+			c.Errorf("failed to log job %d as failed: %s", jobKey.IntID(), innerErr)
+		}
 		return 0, err
 	}
 
 	for i := range tasks {
 		if err := job.PostTask(c, tasks[i].Url, job.JobParameters); err != nil {
+			if _, innerErr := updateJobStage(c, jobKey, StageFailed); err != nil {
+				c.Errorf("failed to log job %d as failed: %s", jobKey.IntID(), innerErr)
+			}
 			return 0, err
 		}
 	}
