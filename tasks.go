@@ -20,6 +20,7 @@ import (
 	"appengine/taskqueue"
 	"encoding/json"
 	"fmt"
+	"github.com/cenkalti/backoff"
 	"net/http"
 	"net/url"
 	"time"
@@ -117,46 +118,43 @@ func createTasks(c appengine.Context, jobKey *datastore.Key, taskKeys []*datasto
 		tasks[i].StartTime = now
 	}
 
-	err := datastore.RunInTransaction(c, func(c appengine.Context) error {
-		var job JobInfo
+	return runInTransaction(c,
+		func(c appengine.Context) error {
+			var job JobInfo
 
-		if err := datastore.Get(c, jobKey, &job); err != nil {
+			if err := datastore.Get(c, jobKey, &job); err != nil {
+				return err
+			}
+
+			job.TasksRunning = len(tasks)
+			job.Stage = newStage
+
+			if _, err := datastore.Put(c, jobKey, &job); err != nil {
+				return err
+			}
+
+			_, err := datastore.PutMulti(c, taskKeys, tasks)
 			return err
-		}
-
-		job.TasksRunning = len(tasks)
-		job.Stage = newStage
-
-		if _, err := datastore.Put(c, jobKey, &job); err != nil {
-			return err
-		}
-
-		_, err := datastore.PutMulti(c, taskKeys, tasks)
-		return err
-	}, nil)
-
-	return err
+		})
 }
 
-func runInTransaction(c appengine.Context, tryCount int, f func(c appengine.Context) error) error {
-	var finalErr error
-	for i := 0; i < tryCount; i++ {
-		finalErr = datastore.RunInTransaction(c, f, nil)
+func mrBackOff() backoff.BackOff {
+	b := backoff.NewExponentialBackOff()
+	b.InitialInterval = 10 * time.Millisecond
+	b.MaxInterval = 5 * time.Second
+	b.MaxElapsedTime = 60 * time.Second
 
-		if finalErr == nil {
-			return nil
-		} else if finalErr != nil && finalErr != datastore.ErrConcurrentTransaction {
-			break
-		}
+	return b
+}
 
-		time.Sleep(100 * time.Millisecond)
-	}
-
-	return finalErr
+func runInTransaction(c appengine.Context, f func(c appengine.Context) error) error {
+	return backoff.Retry(func() error {
+		return datastore.RunInTransaction(c, f, nil)
+	}, mrBackOff())
 }
 
 func updateJobStage(c appengine.Context, jobKey *datastore.Key, status JobStage) (prev JobInfo, finalErr error) {
-	finalErr = runInTransaction(c, 5, func(c appengine.Context) error {
+	finalErr = runInTransaction(c, func(c appengine.Context) error {
 		prev = JobInfo{}
 		if err := datastore.Get(c, jobKey, &prev); err != nil {
 			return err
@@ -177,7 +175,7 @@ func updateJobStage(c appengine.Context, jobKey *datastore.Key, status JobStage)
 }
 
 func taskComplete(c appengine.Context, jobKey *datastore.Key, expectedStage, nextStage JobStage) (stageChanged bool, job JobInfo, finalErr error) {
-	finalErr = runInTransaction(c, 5, func(c appengine.Context) error {
+	finalErr = runInTransaction(c, func(c appengine.Context) error {
 		job = JobInfo{}
 		if err := datastore.Get(c, jobKey, &job); err != nil {
 			return err
