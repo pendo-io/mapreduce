@@ -72,6 +72,9 @@ func reduceTask(c appengine.Context, baseUrl string, mr MapReducePipeline, taskK
 		// unexpectedly.
 		errorType := "again"
 		err := "restarted unexpectedly"
+		if _, err := updateTask(c, taskKey, TaskStatusPending, "", ""); err != nil {
+			c.Errorf("failed to reset task to running status: %s", err)
+		}
 		mr.PostStatus(c, fmt.Sprintf("%s/reducecomplete?taskKey=%s;status=%s;error=%s", baseUrl, taskKey.Encode(), errorType, url.QueryEscape(err)))
 		return
 	}

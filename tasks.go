@@ -168,7 +168,7 @@ func updateJobStage(c appengine.Context, jobKey *datastore.Key, status JobStage)
 	})
 
 	if finalErr != nil {
-		c.Criticalf("updateJobStage failed: %s", finalErr)
+		c.Criticalf("updateJobStage for key %s failed: %s", jobKey, finalErr)
 	}
 
 	return

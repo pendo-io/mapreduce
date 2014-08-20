@@ -134,6 +134,9 @@ func mapTask(c appengine.Context, baseUrl string, mr MapReducePipeline, taskKey 
 		// unexpectedly.
 		errorType := "again"
 		err := "restarted unexpectedly"
+		if _, err := updateTask(c, taskKey, TaskStatusPending, "", ""); err != nil {
+			c.Errorf("failed to reset task to running status: %s", err)
+		}
 		mr.PostStatus(c, fmt.Sprintf("%s/mapcomplete?taskKey=%s;status=%s;error=%s", baseUrl, taskKey.Encode(), errorType, url.QueryEscape(err)))
 		return
 	}
