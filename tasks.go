@@ -214,7 +214,11 @@ func taskComplete(c appengine.Context, jobKey *datastore.Key, expectedStage, nex
 func getTask(c appengine.Context, taskKey *datastore.Key) (JobTask, error) {
 	var task JobTask
 
-	if err := datastore.Get(c, taskKey, &task); err != nil {
+	err := backoff.Retry(func() error {
+		return datastore.Get(c, taskKey, &task)
+	}, mrBackOff())
+
+	if err != nil {
 		return JobTask{}, err
 	}
 
@@ -224,27 +228,31 @@ func getTask(c appengine.Context, taskKey *datastore.Key) (JobTask, error) {
 func updateTask(c appengine.Context, taskKey *datastore.Key, status TaskStatus, info string, result interface{}) (JobTask, error) {
 	var task JobTask
 
-	if err := datastore.Get(c, taskKey, &task); err != nil {
-		return JobTask{}, err
-	}
-
-	task.UpdatedAt = time.Now()
-	task.Info = info
-
-	if status != "" {
-		task.Status = status
-	}
-
-	if result != nil {
-		resultBytes, err := json.Marshal(result)
-		if err != nil {
-			return JobTask{}, err
+	err := backoff.Retry(func() error {
+		if err := datastore.Get(c, taskKey, &task); err != nil {
+			return err
 		}
 
-		task.Result = string(resultBytes)
-	}
+		task.UpdatedAt = time.Now()
+		task.Info = info
 
-	_, err := datastore.Put(c, taskKey, &task)
+		if status != "" {
+			task.Status = status
+		}
+
+		if result != nil {
+			resultBytes, err := json.Marshal(result)
+			if err != nil {
+				return err
+			}
+
+			task.Result = string(resultBytes)
+		}
+
+		_, err := datastore.Put(c, taskKey, &task)
+		return err
+	}, mrBackOff())
+
 	return task, err
 }
 

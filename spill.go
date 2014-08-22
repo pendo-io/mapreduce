@@ -168,6 +168,7 @@ func mergeSpills(c appengine.Context, intStorage IntermediateStorage, handler Ke
 	numShards := len(spills[0].linesPerShard)
 	names := make([]string, 0, numShards)
 	for shardCount := 0; shardCount < numShards; shardCount++ {
+		c.Infof("merging shard %d/%d", shardCount, numShards)
 		if shard, merger, err := spillMerger.nextMerger(); err != nil {
 			return nil, fmt.Errorf("failed to create merger for shard %d: %s", shardCount, err)
 		} else if shard != shardCount {

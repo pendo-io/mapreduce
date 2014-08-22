@@ -122,14 +122,14 @@ type MapReduceJob struct {
 func Run(c appengine.Context, job MapReduceJob) (int64, error) {
 	readerNames, err := job.Inputs.ReaderNames()
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("forming reader names: %s", err)
 	} else if len(readerNames) == 0 {
 		return 0, fmt.Errorf("no input readers")
 	}
 
 	writerNames, err := job.Outputs.WriterNames(c)
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("forming writer names: %s", err)
 	} else if len(writerNames) == 0 {
 		return 0, fmt.Errorf("no output writers")
 	}
@@ -138,14 +138,14 @@ func Run(c appengine.Context, job MapReduceJob) (int64, error) {
 
 	jobKey, err := createJob(c, job.UrlPrefix, writerNames, job.OnCompleteUrl, job.JobParameters, job.RetryCount)
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("creating job: %s", err)
 	}
 
 	taskKeys := make([]*datastore.Key, len(readerNames))
 	tasks := make([]JobTask, len(readerNames))
 	firstId, _, err := datastore.AllocateIDs(c, TaskEntity, jobKey, len(readerNames))
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("allocating task ids: %s", err)
 	}
 
 	for i, readerName := range readerNames {
@@ -168,7 +168,7 @@ func Run(c appengine.Context, job MapReduceJob) (int64, error) {
 		if _, innerErr := updateJobStage(c, jobKey, StageFailed); err != nil {
 			c.Errorf("failed to log job %d as failed: %s", jobKey.IntID(), innerErr)
 		}
-		return 0, err
+		return 0, fmt.Errorf("creating tasks: %s", err)
 	}
 
 	for i := range tasks {
@@ -176,7 +176,7 @@ func Run(c appengine.Context, job MapReduceJob) (int64, error) {
 			if _, innerErr := updateJobStage(c, jobKey, StageFailed); err != nil {
 				c.Errorf("failed to log job %d as failed: %s", jobKey.IntID(), innerErr)
 			}
-			return 0, err
+			return 0, fmt.Errorf("posting task: %s", err)
 		}
 	}
 
