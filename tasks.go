@@ -48,13 +48,13 @@ const (
 // JobTask is the entity stored in the datastore defining a single MapReduce task. They
 // have JobInfo entities as their parents.
 type JobTask struct {
-	Status    TaskStatus
-	RunCount  int
-	Info      string
-	StartTime time.Time
-	UpdatedAt time.Time
-	Type      TaskType
-	Retries   int
+	Status    TaskStatus `datastore:,noindex`
+	RunCount  int        `datastore:,noindex`
+	Info      string     `datastore:,noindex`
+	StartTime time.Time  `datastore:,noindex`
+	UpdatedAt time.Time  `datastore:,noindex`
+	Type      TaskType   `datastore:,noindex`
+	Retries   int        `datastore:,noindex`
 	// this is named intermediate storage sources, and only used for reduce tasks
 	ReadFrom []string `datastore:",noindex"`
 	Url      string   `datastore:",noindex"`

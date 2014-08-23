@@ -60,6 +60,7 @@ func mapCompleteTask(c appengine.Context, pipeline MapReducePipeline, taskKey *d
 	for i := range mapTasks {
 		var shardNames map[string]int
 		if err = json.Unmarshal([]byte(mapTasks[i].Result), &shardNames); err != nil {
+			c.Errorf("unmarshall error for result i=%d '%s'", i, mapTasks[i].Result)
 			jobFailed(c, pipeline, jobKey, fmt.Errorf("cannot unmarshal map shard names: %s", err.Error()))
 			return
 		} else {
