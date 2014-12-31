@@ -114,6 +114,11 @@ type MapReduceJob struct {
 	// means it will never retry).
 	RetryCount int
 
+	// SeparateReduceItems means that instead of collapsing all rows with the same key into
+	// one call to the reduce function, each row is passed individually (though wrapped in
+	// an array of length one to keep the reduce function signature the same)
+	SeparateReduceItems bool
+
 	// JobParameters is passed to map and reduce job. They are assumed to be json encoded, though
 	// absolutely no effort is made to enforce that.
 	JobParameters string
@@ -136,7 +141,7 @@ func Run(c appengine.Context, job MapReduceJob) (int64, error) {
 
 	reducerCount := len(writerNames)
 
-	jobKey, err := createJob(c, job.UrlPrefix, writerNames, job.OnCompleteUrl, job.JobParameters, job.RetryCount)
+	jobKey, err := createJob(c, job.UrlPrefix, writerNames, job.OnCompleteUrl, job.SeparateReduceItems, job.JobParameters, job.RetryCount)
 	if err != nil {
 		return 0, fmt.Errorf("creating job: %s", err)
 	}

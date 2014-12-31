@@ -44,8 +44,10 @@ func reduceCompleteTask(c appengine.Context, pipeline MapReducePipeline, taskKey
 		return
 	}
 
+	c.Infof("reduce complete")
 	if job.OnCompleteUrl != "" {
 		successUrl := fmt.Sprintf("%s?status=%s;id=%d", job.OnCompleteUrl, TaskStatusDone, jobKey.IntID())
+		c.Infof("posting complete status to url %s", successUrl)
 		pipeline.PostStatus(c, successUrl)
 	}
 }
@@ -94,7 +96,7 @@ func reduceTask(c appengine.Context, baseUrl string, mr MapReducePipeline, taskK
 	} else if writer, err = mr.WriterFromName(c, writerName); err != nil {
 		finalError = fmt.Errorf("error getting writer: %s", err.Error())
 	} else {
-		finalError = ReduceFunc(c, mr, writer, task.ReadFrom,
+		finalError = ReduceFunc(c, mr, writer, task.ReadFrom, task.SeparateReduceItems,
 			makeStatusUpdateFunc(c, mr, fmt.Sprintf("%s/reducestatus", baseUrl), taskKey.Encode()))
 	}
 
@@ -119,7 +121,7 @@ func reduceTask(c appengine.Context, baseUrl string, mr MapReducePipeline, taskK
 }
 
 func ReduceFunc(c appengine.Context, mr MapReducePipeline, writer SingleOutputWriter, shardNames []string,
-	statusFunc StatusUpdateFunc) error {
+	separateReduceItems bool, statusFunc StatusUpdateFunc) error {
 
 	merger := newMerger(mr)
 
@@ -166,7 +168,7 @@ func ReduceFunc(c appengine.Context, mr MapReducePipeline, writer SingleOutputWr
 			return err
 		}
 
-		if mr.Equal(key, item.Key) {
+		if !separateReduceItems && mr.Equal(key, item.Key) {
 			values = append(values, item.Value)
 			continue
 		}

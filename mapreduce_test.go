@@ -156,6 +156,7 @@ func (uwc testUniqueWordCount) MapComplete(status StatusUpdateFunc) ([]MappedDat
 func (mrt *MapreduceTests) TestWordCount(c *ck.C) {
 	u := testUniqueWordCount{}
 	job := mrt.setup(&u, &u.SimpleTasks)
+	job.SeparateReduceItems = true
 	defer u.SimpleTasks.gather()
 
 	_, err := Run(mrt.Context, job)

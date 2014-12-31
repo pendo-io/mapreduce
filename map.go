@@ -90,11 +90,12 @@ func mapCompleteTask(c appengine.Context, pipeline MapReducePipeline, taskKey *d
 			firstId++
 
 			tasks = append(tasks, JobTask{
-				Status:   TaskStatusPending,
-				RunCount: 0,
-				Url:      url,
-				ReadFrom: shards,
-				Type:     TaskTypeReduce,
+				Status:             TaskStatusPending,
+				RunCount:           0,
+				Url:                url,
+				ReadFrom:           shards,
+				SeparateReduceItems: job.SeparateReduceItems,
+				Type:               TaskTypeReduce,
 			})
 		}
 	}

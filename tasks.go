@@ -48,13 +48,14 @@ const (
 // JobTask is the entity stored in the datastore defining a single MapReduce task. They
 // have JobInfo entities as their parents.
 type JobTask struct {
-	Status    TaskStatus `datastore:,noindex`
-	RunCount  int        `datastore:,noindex`
-	Info      string     `datastore:,noindex`
-	StartTime time.Time  `datastore:,noindex`
-	UpdatedAt time.Time  `datastore:,noindex`
-	Type      TaskType   `datastore:,noindex`
-	Retries   int        `datastore:,noindex`
+	Status             TaskStatus `datastore:,noindex`
+	RunCount           int        `datastore:,noindex`
+	Info               string     `datastore:,noindex`
+	StartTime          time.Time  `datastore:,noindex`
+	UpdatedAt          time.Time  `datastore:,noindex`
+	Type               TaskType   `datastore:,noindex`
+	Retries            int        `datastore:,noindex`
+	SeparateReduceItems bool
 	// this is named intermediate storage sources, and only used for reduce tasks
 	ReadFrom []string `datastore:",noindex"`
 	Url      string   `datastore:",noindex"`
@@ -63,14 +64,15 @@ type JobTask struct {
 
 // JobInfo is the entity stored in the datastore defining the MapReduce Job
 type JobInfo struct {
-	UrlPrefix      string
-	Stage          JobStage
-	UpdatedAt      time.Time
-	TasksRunning   int
-	RetryCount     int
-	OnCompleteUrl  string
-	WriterNames    []string `datastore:",noindex"`
-	JsonParameters string   `datastore:",noindex"`
+	UrlPrefix          string
+	Stage              JobStage
+	UpdatedAt          time.Time
+	TasksRunning       int
+	RetryCount         int
+	SeparateReduceItems bool
+	OnCompleteUrl      string
+	WriterNames        []string `datastore:",noindex"`
+	JsonParameters     string   `datastore:",noindex"`
 }
 
 // TaskInterface defines how the map and reduce tasks and controlled, and how they report
@@ -92,7 +94,7 @@ const (
 const JobEntity = "MapReduceJob"
 const TaskEntity = "MapReduceTask"
 
-func createJob(c appengine.Context, urlPrefix string, writerNames []string, onCompleteUrl string, jsonParameters string, retryCount int) (*datastore.Key, error) {
+func createJob(c appengine.Context, urlPrefix string, writerNames []string, onCompleteUrl string, separateReduceItems bool, jsonParameters string, retryCount int) (*datastore.Key, error) {
 	if retryCount == 0 {
 		// default
 		retryCount = 3
@@ -100,13 +102,14 @@ func createJob(c appengine.Context, urlPrefix string, writerNames []string, onCo
 
 	key := datastore.NewKey(c, JobEntity, "", 0, nil)
 	job := JobInfo{
-		UrlPrefix:      urlPrefix,
-		Stage:          StageFormation,
-		UpdatedAt:      time.Now(),
-		OnCompleteUrl:  onCompleteUrl,
-		WriterNames:    writerNames,
-		RetryCount:     retryCount,
-		JsonParameters: jsonParameters,
+		UrlPrefix:          urlPrefix,
+		Stage:              StageFormation,
+		UpdatedAt:          time.Now(),
+		OnCompleteUrl:      onCompleteUrl,
+		SeparateReduceItems: separateReduceItems,
+		WriterNames:        writerNames,
+		RetryCount:         retryCount,
+		JsonParameters:     jsonParameters,
 	}
 
 	return datastore.Put(c, key, &job)
