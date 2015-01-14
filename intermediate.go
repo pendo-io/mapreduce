@@ -169,30 +169,20 @@ func (r *ReaderIterator) Next() (MappedData, bool, error) {
 	return m, true, nil
 }
 
-func mergeIntermediate(c appengine.Context, intStorage IntermediateStorage, handler KeyValueHandler, merger *mappedDataMerger) (string, error) {
-	w, err := intStorage.CreateIntermediate(c, handler)
-	if err != nil {
-		c.Errorf("failed to create intermediate file: %s", err)
-		return "", err
-	}
-
+func mergeIntermediate(w SingleIntermediateStorageWriter, handler KeyValueHandler, merger *mappedDataMerger) error {
 	rows := 0
 	for !merger.empty() {
 		item, err := merger.next()
 		if err != nil {
-			return "", err
+			return err
 		}
 
 		if err := w.WriteMappedData(*item); err != nil {
-			return "", err
+			return err
 		}
 
 		rows++
 	}
 
-	if err := w.Close(c); err != nil {
-		return "", fmt.Errorf("failed to close merge file: %s", err)
-	}
-
-	return w.ToName(), nil
+	return nil
 }

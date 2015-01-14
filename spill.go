@@ -21,6 +21,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"reflect"
 	"sort"
 )
 
@@ -47,12 +48,14 @@ func writeSpill(c appengine.Context, handler KeyValueHandler, dataSets []mappedD
 				return spillStruct{}, fmt.Errorf("error dumping item value: %s", err)
 			}
 
-			if bytes.Equal(key, value) {
-				key = nil
+			// since these writes are going into a byte buffer they can't really fail
+
+			if reflect.TypeOf(item.Key) == reflect.TypeOf(item.Value) && bytes.Equal(key, value) {
+				binary.Write(writer, binary.LittleEndian, int32(-1))
+			} else {
+				binary.Write(writer, binary.LittleEndian, int32(len(key)))
 			}
 
-			// since these are writing into a byte buffer they can't really fail
-			binary.Write(writer, binary.LittleEndian, int32(len(key)))
 			binary.Write(writer, binary.LittleEndian, int32(len(value)))
 			writer.Write(key)
 			writer.Write(value)
@@ -90,7 +93,10 @@ func (si *spillIterator) Next() (MappedData, bool, error) {
 		return MappedData{}, false, fmt.Errorf("error reading spill value length: %s", err)
 	}
 
-	keyBytes := make([]byte, keyLen)
+	keyBytes := []byte{}
+	if keyLen > 0 {
+		keyBytes = make([]byte, keyLen)
+	}
 	valueBytes := make([]byte, valueLen)
 
 	var m MappedData
@@ -101,7 +107,7 @@ func (si *spillIterator) Next() (MappedData, bool, error) {
 		return MappedData{}, false, fmt.Errorf("error reading spill value: %s", err)
 	} else if m.Value, err = si.handler.ValueLoad(valueBytes); err != nil {
 		return MappedData{}, false, fmt.Errorf("error loading spill value: %s", err)
-	} else if keyLen == 0 {
+	} else if keyLen == -1 {
 		m.Key = m.Value
 	} else if m.Key, err = si.handler.KeyLoad(keyBytes); err != nil {
 		return MappedData{}, false, fmt.Errorf("error loading spill key: %s", err)
@@ -202,17 +208,42 @@ func mergeSpills(c appengine.Context, intStorage IntermediateStorage, handler Ke
 
 	numShards := len(spills[0].linesPerShard)
 	names := make([]string, 0, numShards)
+
+	closerResults := make(chan error, numShards)
+
 	for shardCount := 0; shardCount < numShards; shardCount++ {
 		c.Infof("merging shard %d/%d", shardCount, numShards)
 		if shard, merger, err := spillMerger.nextMerger(); err != nil {
 			return nil, fmt.Errorf("failed to create merger for shard %d: %s", shardCount, err)
 		} else if shard != shardCount {
 			panic("lost track of shard count for spill merge!!!")
-		} else if name, err := mergeIntermediate(c, intStorage, handler, merger); err != nil {
+		} else if w, err := intStorage.CreateIntermediate(c, handler); err != nil {
+			return nil, fmt.Errorf("failed to create intermediate file: %s", err)
+		} else if err := mergeIntermediate(w, handler, merger); err != nil {
 			return nil, fmt.Errorf("failed to merge shard %d: %s", shardCount, err)
 		} else {
-			names = append(names, name)
+			names = append(names, w.ToName())
+			go func() {
+				defer func() {
+					if r := recover(); r != nil {
+						closerResults <- fmt.Errorf("panic closing intermediate file: %s", r)
+					}
+				}()
+
+				closerResults <- w.Close(c)
+			}()
 		}
+	}
+
+	var closeErr error
+	for shardCount := 0; shardCount < numShards; shardCount++ {
+		closeErr = <-closerResults
+	}
+
+	close(closerResults)
+
+	if closeErr != nil {
+		return nil, fmt.Errorf("failed to close merge file: %s", closeErr)
 	}
 
 	return names, nil

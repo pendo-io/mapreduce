@@ -39,9 +39,13 @@ func (mrt *MapreduceTests) TestIntermediateMerge(c *ck.C) {
 		merger.addSource(iterator)
 	}
 
-	name, err := mergeIntermediate(mrt.Context, memStorage, handler, merger)
+	w, _ := memStorage.CreateIntermediate(mrt.Context, handler)
+	err := mergeIntermediate(w, handler, merger)
+	c.Assert(err, ck.Equals, nil)
+	err = w.Close(mrt.Context)
+	c.Assert(err, ck.Equals, nil)
 
-	iter, err := memStorage.Iterator(mrt.Context, name, handler)
+	iter, err := memStorage.Iterator(mrt.Context, w.ToName(), handler)
 	c.Assert(err, ck.IsNil)
 
 	next := int64(0)
