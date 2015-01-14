@@ -39,7 +39,7 @@ func (mrt *MapreduceTests) TestSpill(c *ck.C) {
 	// we test that we can merge each of the individual shards together from the various spills. with sorting, that makes each
 	// merged shard like 0, 5, 10, ...., 9990, 9995
 
-	spills := make([]spill, 5)
+	spills := make([]spillStruct, 5)
 	for pass := 0; pass < 5; pass++ {
 		dataSets := make([]mappedDataList, 5)
 		for shard := range dataSets {
@@ -51,7 +51,7 @@ func (mrt *MapreduceTests) TestSpill(c *ck.C) {
 			dataSets[shard].data = append(dataSets[shard].data, MappedData{Key: int64(i), Value: fmt.Sprintf("%s", i)})
 		}
 
-		spill, err := writeSpill(mrt.Context, memStorage, handler, dataSets)
+		spill, err := writeSpill(mrt.Context, handler, dataSets)
 		c.Assert(err, ck.IsNil)
 		c.Assert(spill.linesPerShard, ck.DeepEquals, []int{400, 400, 400, 400, 400})
 

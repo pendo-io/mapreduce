@@ -90,12 +90,12 @@ func mapCompleteTask(c appengine.Context, pipeline MapReducePipeline, taskKey *d
 			firstId++
 
 			tasks = append(tasks, JobTask{
-				Status:             TaskStatusPending,
-				RunCount:           0,
-				Url:                url,
-				ReadFrom:           shards,
+				Status:              TaskStatusPending,
+				RunCount:            0,
+				Url:                 url,
+				ReadFrom:            shards,
 				SeparateReduceItems: job.SeparateReduceItems,
-				Type:               TaskTypeReduce,
+				Type:                TaskTypeReduce,
 			})
 		}
 	}
@@ -189,7 +189,7 @@ func mapperFunc(c appengine.Context, mr MapReducePipeline, reader SingleInputRea
 	statusFunc StatusUpdateFunc) (map[string]int, error) {
 
 	dataSets := make([]mappedDataList, shardCount)
-	spills := make([]spill, 0)
+	spills := make([]spillStruct, 0)
 	for i := range dataSets {
 		dataSets[i] = mappedDataList{data: make([]MappedData, 0), compare: mr}
 	}
@@ -221,7 +221,7 @@ func mapperFunc(c appengine.Context, mr MapReducePipeline, reader SingleInputRea
 		}
 
 		if size > 4*1024*1024 {
-			if spill, err := writeSpill(c, mr, mr, dataSets); err != nil {
+			if spill, err := writeSpill(c, mr, dataSets); err != nil {
 				return nil, tryAgainError{err}
 			} else {
 				spills = append(spills, spill)
@@ -259,7 +259,7 @@ func mapperFunc(c appengine.Context, mr MapReducePipeline, reader SingleInputRea
 		dataSets[shard].data = append(dataSets[shard].data, item)
 	}
 
-	if spill, err := writeSpill(c, mr, mr, dataSets); err != nil {
+	if spill, err := writeSpill(c, mr, dataSets); err != nil {
 		return nil, tryAgainError{err}
 	} else {
 		spills = append(spills, spill)

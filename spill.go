@@ -16,53 +16,63 @@ package mapreduce
 
 import (
 	"appengine"
+	"bytes"
+	"compress/gzip"
+	"encoding/binary"
 	"fmt"
 	"io"
 	"sort"
 )
 
-type spill struct {
-	intermediateName string
-	linesPerShard    []int
+type spillStruct struct {
+	contents      []byte
+	linesPerShard []int
 }
 
-func writeSpill(c appengine.Context, intermediate IntermediateStorage, handler KeyValueHandler, dataSets []mappedDataList) (spill, error) {
-	outFile, err := intermediate.CreateIntermediate(c, handler)
-	if err != nil {
-		return spill{}, fmt.Errorf("error creating spill file: %s", err)
-	}
-
-	spill := spill{
+func writeSpill(c appengine.Context, handler KeyValueHandler, dataSets []mappedDataList) (spillStruct, error) {
+	spill := spillStruct{
 		linesPerShard: make([]int, len(dataSets)),
 	}
 
-	for i := range dataSets {
-		sort.Sort(dataSets[i])
+	buf := &bytes.Buffer{}
+	writer := gzip.NewWriter(buf)
 
-		for itemIdx := range dataSets[i].data {
-			if err := outFile.WriteMappedData(dataSets[i].data[itemIdx]); err != nil {
-				outFile.Close(c)
-				return spill, fmt.Errorf("error writing to spill: %s", err)
+	for i, dataSet := range dataSets {
+		sort.Sort(dataSet)
+
+		for _, item := range dataSet.data {
+			key := handler.KeyDump(item.Key)
+			value, err := handler.ValueDump(item.Value)
+			if err != nil {
+				return spillStruct{}, fmt.Errorf("error dumping item value: %s", err)
 			}
+
+			if bytes.Equal(key, value) {
+				key = nil
+			}
+
+			// since these are writing into a byte buffer they can't really fail
+			binary.Write(writer, binary.LittleEndian, int32(len(key)))
+			binary.Write(writer, binary.LittleEndian, int32(len(value)))
+			writer.Write(key)
+			writer.Write(value)
 		}
 
 		spill.linesPerShard[i] = len(dataSets[i].data)
 	}
 
-	if err := outFile.Close(c); err != nil {
-		return spill, fmt.Errorf("failed to close spill file: %s", err)
-	}
-
-	spill.intermediateName = outFile.ToName()
+	writer.Close()
+	spill.contents = buf.Bytes()
 
 	return spill, nil
 }
 
 type spillIterator struct {
-	iter          IntermediateStorageIterator
+	r             io.ReadCloser
 	lineCount     int
 	shard         int
 	linesPerShard []int
+	handler       KeyValueHandler
 }
 
 func (si *spillIterator) Next() (MappedData, bool, error) {
@@ -71,11 +81,37 @@ func (si *spillIterator) Next() (MappedData, bool, error) {
 	}
 
 	si.lineCount++
-	return si.iter.Next()
+
+	var keyLen, valueLen int32
+
+	if err := binary.Read(si.r, binary.LittleEndian, &keyLen); err != nil {
+		return MappedData{}, false, fmt.Errorf("error reading spill key length: %s", err)
+	} else if err := binary.Read(si.r, binary.LittleEndian, &valueLen); err != nil {
+		return MappedData{}, false, fmt.Errorf("error reading spill value length: %s", err)
+	}
+
+	keyBytes := make([]byte, keyLen)
+	valueBytes := make([]byte, valueLen)
+
+	var m MappedData
+
+	if _, err := io.ReadFull(si.r, keyBytes); err != nil {
+		return MappedData{}, false, fmt.Errorf("error reading spill key: %s", err)
+	} else if _, err := io.ReadFull(si.r, valueBytes); err != nil {
+		return MappedData{}, false, fmt.Errorf("error reading spill value: %s", err)
+	} else if m.Value, err = si.handler.ValueLoad(valueBytes); err != nil {
+		return MappedData{}, false, fmt.Errorf("error loading spill value: %s", err)
+	} else if keyLen == 0 {
+		m.Key = m.Value
+	} else if m.Key, err = si.handler.KeyLoad(keyBytes); err != nil {
+		return MappedData{}, false, fmt.Errorf("error loading spill key: %s", err)
+	}
+
+	return m, true, nil
 }
 
 func (si *spillIterator) Close() error {
-	return si.iter.Close()
+	return si.r.Close()
 }
 
 func (si *spillIterator) NextShard() error {
@@ -96,10 +132,13 @@ func (si *spillIterator) NextShard() error {
 	return nil
 }
 
-func newSpillIterator(iter IntermediateStorageIterator, linesPerShard []int) spillIterator {
+func newSpillIterator(contents []byte, linesPerShard []int, handler KeyValueHandler) spillIterator {
+	r, _ := gzip.NewReader(bytes.NewBuffer(contents))
+
 	return spillIterator{
-		iter:          iter,
+		r:             r,
 		linesPerShard: linesPerShard,
+		handler:       handler,
 	}
 }
 
@@ -110,7 +149,7 @@ type spillMerger struct {
 	handler    KeyValueHandler
 }
 
-func spillSetMerger(c appengine.Context, spills []spill, intStorage IntermediateStorage, handler KeyValueHandler) (*spillMerger, error) {
+func spillSetMerger(c appengine.Context, spills []spillStruct, handler KeyValueHandler) (*spillMerger, error) {
 	if len(spills) == 0 {
 		return nil, nil
 	}
@@ -122,11 +161,7 @@ func spillSetMerger(c appengine.Context, spills []spill, intStorage Intermediate
 	}
 
 	for spill := range spills {
-		if iter, err := intStorage.Iterator(c, spills[spill].intermediateName, handler); err != nil {
-			return nil, fmt.Errorf("error opening spill: %s", err)
-		} else {
-			merger.spillIters[spill] = newSpillIterator(iter, spills[spill].linesPerShard)
-		}
+		merger.spillIters[spill] = newSpillIterator(spills[spill].contents, spills[spill].linesPerShard, handler)
 	}
 
 	return merger, nil
@@ -155,12 +190,12 @@ func (merger *spillMerger) nextMerger() (int, *mappedDataMerger, error) {
 	return merger.nextShard - 1, mm, nil
 }
 
-func mergeSpills(c appengine.Context, intStorage IntermediateStorage, handler KeyValueHandler, spills []spill) ([]string, error) {
+func mergeSpills(c appengine.Context, intStorage IntermediateStorage, handler KeyValueHandler, spills []spillStruct) ([]string, error) {
 	if len(spills) == 0 {
 		return []string{}, nil
 	}
 
-	spillMerger, err := spillSetMerger(c, spills, intStorage, handler)
+	spillMerger, err := spillSetMerger(c, spills, handler)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create spill merger: %s", err)
 	}
@@ -177,12 +212,6 @@ func mergeSpills(c appengine.Context, intStorage IntermediateStorage, handler Ke
 			return nil, fmt.Errorf("failed to merge shard %d: %s", shardCount, err)
 		} else {
 			names = append(names, name)
-		}
-	}
-
-	for spill := range spills {
-		if err := intStorage.RemoveIntermediate(c, spills[spill].intermediateName); err != nil {
-			c.Infof("failed to remove intermediate file %s: %s", spills[spill].intermediateName, err)
 		}
 	}
 
