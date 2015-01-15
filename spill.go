@@ -21,7 +21,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"reflect"
 	"sort"
 )
 
@@ -50,8 +49,9 @@ func writeSpill(c appengine.Context, handler KeyValueHandler, dataSets []mappedD
 
 			// since these writes are going into a byte buffer they can't really fail
 
-			if reflect.TypeOf(item.Key) == reflect.TypeOf(item.Value) && bytes.Equal(key, value) {
+			if key == nil {
 				binary.Write(writer, binary.LittleEndian, int32(-1))
+				key = []byte{}
 			} else {
 				binary.Write(writer, binary.LittleEndian, int32(len(key)))
 			}
@@ -207,9 +207,13 @@ func mergeSpills(c appengine.Context, intStorage IntermediateStorage, handler Ke
 	}
 
 	numShards := len(spills[0].linesPerShard)
-	names := make([]string, 0, numShards)
 
-	closerResults := make(chan error, numShards)
+	type result struct {
+		err  error
+		name string
+	}
+
+	closerResults := make(chan result, numShards)
 
 	for shardCount := 0; shardCount < numShards; shardCount++ {
 		c.Infof("merging shard %d/%d", shardCount, numShards)
@@ -222,22 +226,24 @@ func mergeSpills(c appengine.Context, intStorage IntermediateStorage, handler Ke
 		} else if err := mergeIntermediate(w, handler, merger); err != nil {
 			return nil, fmt.Errorf("failed to merge shard %d: %s", shardCount, err)
 		} else {
-			names = append(names, w.ToName())
 			go func() {
 				defer func() {
 					if r := recover(); r != nil {
-						closerResults <- fmt.Errorf("panic closing intermediate file: %s", r)
+						closerResults <- result{fmt.Errorf("panic closing intermediate file: %s", r), ""}
 					}
 				}()
 
-				closerResults <- w.Close(c)
+				closerResults <- result{w.Close(c), w.ToName()}
 			}()
 		}
 	}
 
 	var closeErr error
+	names := make([]string, 0, numShards)
 	for shardCount := 0; shardCount < numShards; shardCount++ {
-		closeErr = <-closerResults
+		result := <-closerResults
+		closeErr = result.err
+		names = append(names, result.name)
 	}
 
 	close(closerResults)

@@ -132,14 +132,31 @@ func ReduceFunc(c appengine.Context, mr MapReducePipeline, writer SingleOutputWr
 		}
 	}()
 
+	type result struct {
+		iterator IntermediateStorageIterator
+		err      error
+	}
+
+	resultsCh := make(chan result)
+
 	for _, shardName := range shardNames {
-		iterator, err := mr.Iterator(c, shardName, mr)
-		if err != nil {
-			return fmt.Errorf("cannot open intermediate file %s: %s", shardName, err)
+		shardName := shardName
+
+		go func() {
+			iterator, err := mr.Iterator(c, shardName, mr)
+			resultsCh <- result{iterator, err}
+		}()
+	}
+
+	for _, shardName := range shardNames {
+		result := <-resultsCh
+
+		if result.err != nil {
+			return fmt.Errorf("cannot open intermediate file %s: %s", shardName, result.err)
 		}
 
-		merger.addSource(iterator)
-		toClose = append(toClose, iterator)
+		merger.addSource(result.iterator)
+		toClose = append(toClose, result.iterator)
 	}
 
 	values := make([]interface{}, 1)
