@@ -48,13 +48,13 @@ const (
 // JobTask is the entity stored in the datastore defining a single MapReduce task. They
 // have JobInfo entities as their parents.
 type JobTask struct {
-	Status             TaskStatus `datastore:,noindex`
-	RunCount           int        `datastore:,noindex`
-	Info               string     `datastore:,noindex`
-	StartTime          time.Time  `datastore:,noindex`
-	UpdatedAt          time.Time  `datastore:,noindex`
-	Type               TaskType   `datastore:,noindex`
-	Retries            int        `datastore:,noindex`
+	Status              TaskStatus `datastore:,noindex`
+	RunCount            int        `datastore:,noindex`
+	Info                string     `datastore:,noindex`
+	StartTime           time.Time  `datastore:,noindex`
+	UpdatedAt           time.Time  `datastore:,noindex`
+	Type                TaskType   `datastore:,noindex`
+	Retries             int        `datastore:,noindex`
 	SeparateReduceItems bool
 	// this is named intermediate storage sources, and only used for reduce tasks
 	ReadFrom []string `datastore:",noindex"`
@@ -64,15 +64,15 @@ type JobTask struct {
 
 // JobInfo is the entity stored in the datastore defining the MapReduce Job
 type JobInfo struct {
-	UrlPrefix          string
-	Stage              JobStage
-	UpdatedAt          time.Time
-	TasksRunning       int
-	RetryCount         int
+	UrlPrefix           string
+	Stage               JobStage
+	UpdatedAt           time.Time
+	TasksRunning        int
+	RetryCount          int
 	SeparateReduceItems bool
-	OnCompleteUrl      string
-	WriterNames        []string `datastore:",noindex"`
-	JsonParameters     string   `datastore:",noindex"`
+	OnCompleteUrl       string
+	WriterNames         []string `datastore:",noindex"`
+	JsonParameters      string   `datastore:",noindex"`
 }
 
 // TaskInterface defines how the map and reduce tasks and controlled, and how they report
@@ -102,14 +102,14 @@ func createJob(c appengine.Context, urlPrefix string, writerNames []string, onCo
 
 	key := datastore.NewKey(c, JobEntity, "", 0, nil)
 	job := JobInfo{
-		UrlPrefix:          urlPrefix,
-		Stage:              StageFormation,
-		UpdatedAt:          time.Now(),
-		OnCompleteUrl:      onCompleteUrl,
+		UrlPrefix:           urlPrefix,
+		Stage:               StageFormation,
+		UpdatedAt:           time.Now(),
+		OnCompleteUrl:       onCompleteUrl,
 		SeparateReduceItems: separateReduceItems,
-		WriterNames:        writerNames,
-		RetryCount:         retryCount,
-		JsonParameters:     jsonParameters,
+		WriterNames:         writerNames,
+		RetryCount:          retryCount,
+		JsonParameters:      jsonParameters,
 	}
 
 	return datastore.Put(c, key, &job)
@@ -375,9 +375,10 @@ func parseCompleteRequest(c appengine.Context, pipeline MapReducePipeline, taskK
 		finalErr = fmt.Errorf("error retrying: %s (task failed due to: %s)", finalErr, r.FormValue("error"))
 	case "error":
 		finalErr = fmt.Errorf("failed task: %s", r.FormValue("error"))
-	case "done":
 	default:
 		finalErr = fmt.Errorf("unknown job status %s", status)
+	case "done":
+		//
 	}
 
 	jobKey := taskKey.Parent()
