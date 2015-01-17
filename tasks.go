@@ -21,7 +21,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/cenkalti/backoff"
-	"net/http"
 	"net/url"
 	"time"
 )
@@ -49,12 +48,13 @@ const (
 // have JobInfo entities as their parents.
 type JobTask struct {
 	Status              TaskStatus `datastore:,noindex`
-	RunCount            int        `datastore:,noindex`
-	Info                string     `datastore:,noindex`
-	StartTime           time.Time  `datastore:,noindex`
-	UpdatedAt           time.Time  `datastore:,noindex`
-	Type                TaskType   `datastore:,noindex`
-	Retries             int        `datastore:,noindex`
+	Job                 *datastore.Key
+	Done                *datastore.Key // nil if the task isn't done, job if it is
+	Info                string         `datastore:,noindex`
+	StartTime           time.Time      `datastore:,noindex`
+	UpdatedAt           time.Time      `datastore:,noindex`
+	Type                TaskType       `datastore:,noindex`
+	Retries             int            `datastore:,noindex`
 	SeparateReduceItems bool
 	// this is named intermediate storage sources, and only used for reduce tasks
 	ReadFrom []string `datastore:",noindex"`
@@ -67,7 +67,7 @@ type JobInfo struct {
 	UrlPrefix           string
 	Stage               JobStage
 	UpdatedAt           time.Time
-	TasksRunning        int
+	TaskCount           int `datastore:"TasksRunning,noindex"`
 	RetryCount          int
 	SeparateReduceItems bool
 	OnCompleteUrl       string
@@ -119,6 +119,14 @@ func createTasks(c appengine.Context, jobKey *datastore.Key, taskKeys []*datasto
 	now := time.Now()
 	for i := range tasks {
 		tasks[i].StartTime = now
+		tasks[i].Job = jobKey
+	}
+
+	if err := backoff.Retry(func() error {
+		_, err := datastore.PutMulti(c, taskKeys, tasks)
+		return err
+	}, mrBackOff()); err != nil {
+		return err
 	}
 
 	return runInTransaction(c,
@@ -129,14 +137,10 @@ func createTasks(c appengine.Context, jobKey *datastore.Key, taskKeys []*datasto
 				return err
 			}
 
-			job.TasksRunning = len(tasks)
+			job.TaskCount = len(tasks)
 			job.Stage = newStage
 
-			if _, err := datastore.Put(c, jobKey, &job); err != nil {
-				return err
-			}
-
-			_, err := datastore.PutMulti(c, taskKeys, tasks)
+			_, err := datastore.Put(c, jobKey, &job)
 			return err
 		})
 }
@@ -144,8 +148,8 @@ func createTasks(c appengine.Context, jobKey *datastore.Key, taskKeys []*datasto
 func mrBackOff() backoff.BackOff {
 	b := backoff.NewExponentialBackOff()
 	b.InitialInterval = 10 * time.Millisecond
-	b.MaxInterval = 5 * time.Second
-	b.MaxElapsedTime = 60 * time.Second
+	b.MaxInterval = 10 * time.Second
+	b.MaxElapsedTime = 90 * time.Second
 
 	return b
 }
@@ -156,7 +160,7 @@ func runInTransaction(c appengine.Context, f func(c appengine.Context) error) er
 	}, mrBackOff())
 }
 
-func updateJobStage(c appengine.Context, jobKey *datastore.Key, status JobStage) (prev JobInfo, finalErr error) {
+func markJobFailed(c appengine.Context, jobKey *datastore.Key) (prev JobInfo, finalErr error) {
 	finalErr = runInTransaction(c, func(c appengine.Context) error {
 		prev = JobInfo{}
 		if err := datastore.Get(c, jobKey, &prev); err != nil {
@@ -164,51 +168,88 @@ func updateJobStage(c appengine.Context, jobKey *datastore.Key, status JobStage)
 		}
 
 		job := prev
-		job.Stage = status
+		job.Stage = StageFailed
 
 		_, err := datastore.Put(c, jobKey, &job)
 		return err
 	})
 
 	if finalErr != nil {
-		c.Criticalf("updateJobStage for key %s failed: %s", jobKey, finalErr)
+		c.Criticalf("marking job failed for key %s failed: %s", jobKey, finalErr)
 	}
 
 	return
 }
 
-func taskComplete(c appengine.Context, jobKey *datastore.Key, expectedStage, nextStage JobStage) (stageChanged bool, job JobInfo, finalErr error) {
-	finalErr = runInTransaction(c, func(c appengine.Context) error {
+type taskError struct{ err string }
+
+func (t taskError) Error() string { return "taskError " + t.err }
+
+// check if the specified job has completed. it should currently be at expectedStage, and if it's been completed
+// we advance it to next stage. if it's already at nextStage another process has beaten us to it so we're done
+//
+// caller needs to check the stage in the final job; if stageChanged is true it will be either nextStage or StageFailed.
+// If StageFailed then at least one of the underlying tasks failed and the reason will appear as a taskError{} in err
+func jobStageComplete(c appengine.Context, jobKey *datastore.Key, taskCount int, expectedStage, nextStage JobStage) (stageChanged bool, job JobInfo, finalErr error) {
+	if c, err := datastore.NewQuery(TaskEntity).Filter("Done =", nil).Limit(1).KeysOnly().Count(c); err != nil {
+		finalErr = err
+		return
+	} else if c != 0 {
+		return
+	}
+
+	// looks like everything is done. check to see if anything failed, because if it did we need to mark
+	// this task as failed and return an error
+	taskType := TaskTypeMap
+	if expectedStage == StageReducing {
+		taskType = TaskTypeReduce
+	}
+
+	// gatherTasks is eventually consistent. that's okay here, because
+	// we'll eventually get TaskStatusFailed or TaskStatusDone
+	if tasks, err := gatherTasks(c, jobKey, taskType); err != nil {
+		finalErr = err
+		return
+	} else if len(tasks) != taskCount {
+		// we didn't get all the tasks so we can't tell what's going on
+		return
+	} else {
+		for i := range tasks {
+			if tasks[i].Status == TaskStatusFailed {
+				nextStage = StageFailed
+				finalErr = taskError{tasks[i].Info}
+				break
+			}
+		}
+	}
+
+	// running this in a transaction ensures only one process advances the stage
+	if transErr := runInTransaction(c, func(c appengine.Context) error {
 		job = JobInfo{}
 		if err := datastore.Get(c, jobKey, &job); err != nil {
 			return err
 		}
 
 		if job.Stage != expectedStage {
+			// we're not where we expected, so advancing this isn't our responsibility
 			stageChanged = false
 			return nil
-		} else if job.TasksRunning > 1 {
-			job.TasksRunning--
-			_, err := datastore.Put(c, jobKey, &job)
-			return err
-		}
-
-		if job.TasksRunning == 0 {
-			// this shouldn't really happen
-			c.Errorf("job in stage %s has zero tasks remaining", job.Stage)
-		} else {
-			job.TasksRunning--
 		}
 
 		job.Stage = nextStage
 		job.UpdatedAt = time.Now()
+
 		_, err := datastore.Put(c, jobKey, &job)
-		stageChanged = err == nil
+		stageChanged = (err == nil)
 		return err
-	})
+	}); transErr != nil {
+		finalErr = transErr
+	}
 
 	if finalErr != nil {
 		c.Criticalf("taskComplete failed: %s", finalErr)
+	} else {
+		c.Criticalf("taskComplete complete")
 	}
 
 	return
@@ -218,6 +259,7 @@ func getTask(c appengine.Context, taskKey *datastore.Key) (JobTask, error) {
 	var task JobTask
 
 	err := backoff.Retry(func() error {
+		c.Infof("trying task read")
 		return datastore.Get(c, taskKey, &task)
 	}, mrBackOff())
 
@@ -241,6 +283,9 @@ func updateTask(c appengine.Context, taskKey *datastore.Key, status TaskStatus, 
 
 		if status != "" {
 			task.Status = status
+			if status == TaskStatusDone || task.Status == TaskStatusFailed {
+				task.Done = task.Job
+			}
 		}
 
 		if result != nil {
@@ -259,14 +304,22 @@ func updateTask(c appengine.Context, taskKey *datastore.Key, status TaskStatus, 
 	return task, err
 }
 
-func GetJob(c appengine.Context, jobId int64) (JobInfo, error) {
-	jobKey := datastore.NewKey(c, JobEntity, "", jobId, nil)
+func getJob(c appengine.Context, jobKey *datastore.Key) (JobInfo, error) {
 	var job JobInfo
-	if err := datastore.Get(c, jobKey, &job); err != nil {
-		return JobInfo{}, err
-	}
 
-	return job, nil
+	err := backoff.Retry(func() error {
+		if err := datastore.Get(c, jobKey, &job); err != nil {
+			return err
+		}
+
+		return nil
+	}, mrBackOff())
+
+	return job, err
+}
+
+func GetJob(c appengine.Context, jobId int64) (JobInfo, error) {
+	return getJob(c, datastore.NewKey(c, JobEntity, "", jobId, nil))
 }
 
 func GetJobResults(c appengine.Context, jobId int64) ([]interface{}, error) {
@@ -286,7 +339,7 @@ func GetJobResults(c appengine.Context, jobId int64) ([]interface{}, error) {
 
 func RemoveJob(c appengine.Context, jobId int64) error {
 	jobKey := datastore.NewKey(c, JobEntity, "", jobId, nil)
-	q := datastore.NewQuery(TaskEntity).Ancestor(jobKey).KeysOnly()
+	q := datastore.NewQuery(TaskEntity).Filter("Job =", jobKey).KeysOnly()
 	keys, err := q.GetAll(c, nil)
 	if err != nil {
 		return err
@@ -298,8 +351,7 @@ func RemoveJob(c appengine.Context, jobId int64) error {
 }
 
 func gatherTasks(c appengine.Context, jobKey *datastore.Key, taskType TaskType) ([]JobTask, error) {
-	// we don't use a filter here because it seems like a waste of a compound index
-	q := datastore.NewQuery(TaskEntity).Ancestor(jobKey)
+	q := datastore.NewQuery(TaskEntity).Filter("Job =", jobKey)
 	var tasks []JobTask
 	_, err := q.GetAll(c, &tasks)
 	if err != nil {
@@ -336,18 +388,19 @@ func (q AppengineTaskQueue) PostStatus(c appengine.Context, taskUrl string) erro
 	return err
 }
 
-func retryTask(c appengine.Context, pipeline MapReducePipeline, taskKey *datastore.Key) error {
+func retryTask(c appengine.Context, pipeline MapReducePipeline, jobKey *datastore.Key, taskKey *datastore.Key) error {
 	var task JobTask
 	var job JobInfo
 	if err := datastore.Get(c, taskKey, &task); err != nil {
 		return err
-	} else if err := datastore.Get(c, taskKey.Parent(), &job); err != nil {
+	} else if err := datastore.Get(c, jobKey, &job); err != nil {
 		return err
 	} else if (task.Retries + 1) >= job.RetryCount {
 		return fmt.Errorf("maxium retries exceeded")
 	}
 
 	task.Retries++
+	task.Status = TaskStatusPending
 	if _, err := datastore.Put(c, taskKey, &task); err != nil {
 		return err
 	} else if err := pipeline.PostTask(c, task.Url, job.JsonParameters); err != nil {
@@ -359,58 +412,65 @@ func retryTask(c appengine.Context, pipeline MapReducePipeline, taskKey *datasto
 	return nil
 }
 
-func parseCompleteRequest(c appengine.Context, pipeline MapReducePipeline, taskKey *datastore.Key, r *http.Request) (*datastore.Key, bool, error) {
-	var finalErr error = nil
-
-	status := r.FormValue("status")
-
-	switch status {
-	case "":
-		finalErr = fmt.Errorf("missing status for request %s", r)
-	case "again":
-		finalErr = retryTask(c, pipeline, taskKey)
-		if finalErr == nil {
-			return nil, true, nil
-		}
-		finalErr = fmt.Errorf("error retrying: %s (task failed due to: %s)", finalErr, r.FormValue("error"))
-	case "error":
-		finalErr = fmt.Errorf("failed task: %s", r.FormValue("error"))
-	default:
-		finalErr = fmt.Errorf("unknown job status %s", status)
-	case "done":
-		//
-	}
-
-	jobKey := taskKey.Parent()
-
-	if finalErr != nil {
-		c.Errorf("bad status from task: %s", finalErr.Error())
-		prevJob, _ := updateJobStage(c, jobKey, StageFailed)
-		if prevJob.Stage == StageFailed {
-			return nil, false, finalErr
-		}
-
-		if prevJob.OnCompleteUrl != "" {
-			pipeline.PostStatus(c, fmt.Sprintf("%s?status=error;error=%s;id=%d", prevJob.OnCompleteUrl,
-				url.QueryEscape(finalErr.Error()), jobKey.IntID()))
-		}
-		return nil, false, finalErr
-	}
-
-	return jobKey, false, nil
-}
-
-func jobFailed(c appengine.Context, pipeline MapReducePipeline, jobKey *datastore.Key, err error) {
-	c.Errorf("%s", err)
-	prevJob, _ := updateJobStage(c, jobKey, StageFailed)
+func jobFailed(c appengine.Context, taskIntf TaskInterface, jobKey *datastore.Key, err error) {
+	c.Errorf("jobFailed: %s", err)
+	prevJob, _ := markJobFailed(c, jobKey)
 	if prevJob.Stage == StageFailed {
 		return
 	}
 
 	if prevJob.OnCompleteUrl != "" {
-		pipeline.PostStatus(c, fmt.Sprintf("%s?status=error;error=%s;id=%d", prevJob.OnCompleteUrl,
+		taskIntf.PostStatus(c, fmt.Sprintf("%s?status=error;error=%s;id=%d", prevJob.OnCompleteUrl,
 			url.QueryEscape(err.Error()), jobKey.IntID()))
 	}
 
 	return
+}
+
+// waitForStageCompletion() is split up like this for testability
+type jobStageCompletionFunc func(c appengine.Context, jobKey *datastore.Key, taskCount int, expectedStage, nextStage JobStage) (stageChanged bool, job JobInfo, finalErr error)
+
+func waitForStageCompletion(c appengine.Context, taskIntf TaskInterface, jobKey *datastore.Key, currentStage, nextStage JobStage) (JobInfo, error) {
+	return doWaitForStageCompletion(c, taskIntf, jobKey, currentStage, nextStage, 5*time.Second, jobStageComplete)
+}
+
+// if err != nil, this failed (which should never happen, and should be considered fatal)
+func doWaitForStageCompletion(c appengine.Context, taskIntf TaskInterface, jobKey *datastore.Key, currentStage, nextStage JobStage, delay time.Duration, checkCompletion jobStageCompletionFunc) (JobInfo, error) {
+	var job JobInfo
+
+	taskCount := 0
+	if job, err := getJob(c, jobKey); err != nil {
+		c.Criticalf("monitor failed to load job: %s", err)
+		//http.Error(w, "error loading job", 500)
+		return JobInfo{}, err
+	} else {
+		taskCount = job.TaskCount
+	}
+
+	for {
+		stageChanged, newJob, err := checkCompletion(c, jobKey, taskCount, currentStage, nextStage)
+		if !stageChanged {
+			// this ignores errors.. it should instead sleep a bit longer and maybe even resubmit the
+			// monitor job
+
+			if err != nil {
+				c.Errorf("error getting map task complete status: %s", err.Error())
+			}
+
+			time.Sleep(delay)
+		} else if newJob.Stage == StageFailed {
+			// we found a failed task; the job has been marked as failed; notify the caller and exit
+			jobFailed(c, taskIntf, jobKey, err)
+			return job, fmt.Errorf("failed task")
+		} else if err != nil {
+			// this really shouldn't happen.
+			err := fmt.Errorf("error getting map task complete status even though stage was changed!!: %s", err.Error())
+			return job, err
+		} else {
+			job = newJob
+			break
+		}
+	}
+
+	return job, nil
 }

@@ -22,38 +22,33 @@ import (
 	"net/http"
 	"net/url"
 	"runtime"
+	"time"
 )
 
-func reduceCompleteTask(c appengine.Context, pipeline MapReducePipeline, taskKey *datastore.Key, r *http.Request) {
-	jobKey, complete, err := parseCompleteRequest(c, pipeline, taskKey, r)
+func reduceMonitorTask(c appengine.Context, pipeline MapReducePipeline, jobKey *datastore.Key, r *http.Request) {
+	start := time.Now()
+
+	job, err := waitForStageCompletion(c, pipeline, jobKey, StageReducing, StageDone)
 	if err != nil {
-		jobFailed(c, pipeline, jobKey, fmt.Errorf("failed reduce task %s: %s\n", taskKey.Encode(), err))
-		return
-	} else if complete {
+		c.Criticalf("waitForStageCompletion() failed: %S", err)
 		return
 	}
 
-	done, job, err := taskComplete(c, jobKey, StageReducing, StageDone)
-	if err != nil {
-		jobFailed(c, pipeline, jobKey, fmt.Errorf("error getting task complete status: %s", err.Error()))
-		return
-	}
-
-	if !done {
-		c.Infof("reduce %d complete: %d jobs remaining", taskKey.IntID(), job.TasksRunning)
-		return
-	}
-
-	c.Infof("reduce complete")
+	c.Infof("reduce complete status: %s", job.Stage)
 	if job.OnCompleteUrl != "" {
 		successUrl := fmt.Sprintf("%s?status=%s;id=%d", job.OnCompleteUrl, TaskStatusDone, jobKey.IntID())
 		c.Infof("posting complete status to url %s", successUrl)
 		pipeline.PostStatus(c, successUrl)
 	}
+
+	c.Infof("reduction complete after %s of monitoring ", time.Now().Sub(start))
 }
 
-func reduceTask(c appengine.Context, baseUrl string, mr MapReducePipeline, taskKey *datastore.Key, r *http.Request) {
+func reduceTask(c appengine.Context, baseUrl string, mr MapReducePipeline, taskKey *datastore.Key, w http.ResponseWriter, r *http.Request) {
 	var writer SingleOutputWriter
+	var task JobTask
+
+	start := time.Now()
 
 	defer func() {
 		if r := recover(); r != nil {
@@ -61,24 +56,24 @@ func reduceTask(c appengine.Context, baseUrl string, mr MapReducePipeline, taskK
 			bytes := runtime.Stack(stack, false)
 			c.Criticalf("panic inside of reduce task %s: %s\n%s\n", taskKey.Encode(), r, stack[0:bytes])
 			errMsg := fmt.Sprintf("%s", r)
-			mr.PostStatus(c, fmt.Sprintf("%s/reducecomplete?taskKey=%s;status=error;error=%s", baseUrl, taskKey.Encode(), url.QueryEscape(errMsg)))
+
+			if _, err := updateTask(c, taskKey, TaskStatusFailed, errMsg, nil); err != nil {
+				panic(fmt.Errorf("Could not update task with failure: %s", err))
+			}
 		}
 	}()
 
-	if task, err := getTask(c, taskKey); err != nil {
-		err := fmt.Errorf("failed to get reduce task status: %s", err)
-		c.Criticalf("%s", err)
-		mr.PostStatus(c, fmt.Sprintf("%s/reducecomplete?taskKey=%s;status=error;error=%s", baseUrl, taskKey.Encode(), url.QueryEscape(err.Error())))
-	} else if task.Status == TaskStatusRunning {
-		// we think we're already running, but we got here. that means we failed
-		// unexpectedly.
-		errorType := "again"
-		err := "restarted unexpectedly"
-		if _, err := updateTask(c, taskKey, TaskStatusPending, "", ""); err != nil {
-			c.Errorf("failed to reset task to running status: %s", err)
-		}
-		mr.PostStatus(c, fmt.Sprintf("%s/reducecomplete?taskKey=%s;status=%s;error=%s", baseUrl, taskKey.Encode(), errorType, url.QueryEscape(err)))
+	if t, err := getTask(c, taskKey); err != nil {
+		c.Criticalf("failed to get reduce task status: %s", err)
+		http.Error(w, "could not read task status", 500) // this will run us again
 		return
+	} else if task.Status == TaskStatusRunning {
+		if t.Status == TaskStatusRunning {
+			// we think we're already running, but we got here. that means we failed
+			// unexpectedly.
+			c.Infof("restarted automatically -- running again")
+		}
+		task = t
 	}
 
 	task, err := updateTask(c, taskKey, TaskStatusRunning, "", nil)
@@ -102,22 +97,28 @@ func reduceTask(c appengine.Context, baseUrl string, mr MapReducePipeline, taskK
 
 	if finalError == nil {
 		if _, err := updateTask(c, taskKey, TaskStatusDone, "", writer.ToName()); err != nil {
-			panic(fmt.Errorf("Could not update task: %s", err))
+			c.Criticalf("Could not update task: %s", err)
+			http.Error(w, "could not update task", 500)
+			return
 		}
-		mr.PostStatus(c, fmt.Sprintf("%s/reducecomplete?taskKey=%s;status=done", baseUrl, taskKey.Encode()))
 	} else {
-		c.Errorf("reduce failed: %s", finalError)
-		errorType := "error"
 		if _, ok := finalError.(tryAgainError); ok {
 			// wasn't fatal, go for it
-			errorType = "again"
+			if retryErr := retryTask(c, mr, task.Job, taskKey); retryErr != nil {
+				c.Errorf("error retrying: %s (task failed due to: %s)", retryErr, finalError)
+			} else {
+				c.Infof("retrying task due to %s", finalError)
+			}
+		} else {
+			if _, err := updateTask(c, taskKey, TaskStatusFailed, finalError.Error(), nil); err != nil {
+				panic(fmt.Errorf("Could not update task with failure: %s", err))
+			}
 		}
-
-		updateTask(c, taskKey, TaskStatusFailed, finalError.Error(), nil)
-		mr.PostStatus(c, fmt.Sprintf("%s/reducecomplete?taskKey=%s;status=%s;error=%s", baseUrl, taskKey.Encode(), errorType, url.QueryEscape(finalError.Error())))
 	}
 
 	writer.Close(c)
+
+	c.Infof("reducer done after %s", time.Now().Sub(start))
 }
 
 func ReduceFunc(c appengine.Context, mr MapReducePipeline, writer SingleOutputWriter, shardNames []string,

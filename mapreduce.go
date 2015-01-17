@@ -148,13 +148,13 @@ func Run(c appengine.Context, job MapReduceJob) (int64, error) {
 
 	taskKeys := make([]*datastore.Key, len(readerNames))
 	tasks := make([]JobTask, len(readerNames))
-	firstId, _, err := datastore.AllocateIDs(c, TaskEntity, jobKey, len(readerNames))
+	firstId, _, err := datastore.AllocateIDs(c, TaskEntity, nil, len(readerNames))
 	if err != nil {
 		return 0, fmt.Errorf("allocating task ids: %s", err)
 	}
 
 	for i, readerName := range readerNames {
-		taskKeys[i] = datastore.NewKey(c, TaskEntity, "", firstId, jobKey)
+		taskKeys[i] = datastore.NewKey(c, TaskEntity, "", firstId, nil)
 		firstId++
 
 		url := fmt.Sprintf("%s/map?taskKey=%s;reader=%s;shards=%d",
@@ -162,15 +162,14 @@ func Run(c appengine.Context, job MapReduceJob) (int64, error) {
 			reducerCount)
 
 		tasks[i] = JobTask{
-			Status:   TaskStatusPending,
-			RunCount: 0,
-			Url:      url,
-			Type:     TaskTypeMap,
+			Status: TaskStatusPending,
+			Url:    url,
+			Type:   TaskTypeMap,
 		}
 	}
 
 	if err := createTasks(c, jobKey, taskKeys, tasks, StageMapping); err != nil {
-		if _, innerErr := updateJobStage(c, jobKey, StageFailed); err != nil {
+		if _, innerErr := markJobFailed(c, jobKey); err != nil {
 			c.Errorf("failed to log job %d as failed: %s", jobKey.IntID(), innerErr)
 		}
 		return 0, fmt.Errorf("creating tasks: %s", err)
@@ -178,11 +177,15 @@ func Run(c appengine.Context, job MapReduceJob) (int64, error) {
 
 	for i := range tasks {
 		if err := job.PostTask(c, tasks[i].Url, job.JobParameters); err != nil {
-			if _, innerErr := updateJobStage(c, jobKey, StageFailed); err != nil {
+			if _, innerErr := markJobFailed(c, jobKey); err != nil {
 				c.Errorf("failed to log job %d as failed: %s", jobKey.IntID(), innerErr)
 			}
 			return 0, fmt.Errorf("posting task: %s", err)
 		}
+	}
+
+	if err := job.PostStatus(c, fmt.Sprintf("%s/map-monitor?jobKey=%s", job.UrlPrefix, jobKey.Encode())); err != nil {
+		c.Criticalf("failed to start map monitor task: %s", err)
 	}
 
 	return jobKey.IntID(), nil
@@ -204,6 +207,23 @@ func MapReduceHandler(baseUrl string, pipeline MapReducePipeline,
 }
 
 func (h urlHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	c := h.getContext(r)
+
+	if strings.HasSuffix(r.URL.Path, "/map-monitor") || strings.HasSuffix(r.URL.Path, "/reduce-monitor") {
+		if jobKeyStr := r.FormValue("jobKey"); jobKeyStr == "" {
+			http.Error(w, "jobKey parameter required", http.StatusBadRequest)
+		} else if jobKey, err := datastore.DecodeKey(jobKeyStr); err != nil {
+			http.Error(w, fmt.Sprintf("invalid jobKey: %s", err.Error()),
+				http.StatusBadRequest)
+		} else if strings.HasSuffix(r.URL.Path, "/map-monitor") {
+			mapMonitorTask(c, h.pipeline, jobKey, r)
+		} else {
+			reduceMonitorTask(c, h.pipeline, jobKey, r)
+		}
+
+		return
+	}
+
 	var taskKey *datastore.Key
 	var err error
 
@@ -216,16 +236,10 @@ func (h urlHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	c := h.getContext(r)
-
 	if strings.HasSuffix(r.URL.Path, "/reduce") {
-		reduceTask(c, h.baseUrl, h.pipeline, taskKey, r)
-	} else if strings.HasSuffix(r.URL.Path, "/reducecomplete") {
-		reduceCompleteTask(c, h.pipeline, taskKey, r)
+		reduceTask(c, h.baseUrl, h.pipeline, taskKey, w, r)
 	} else if strings.HasSuffix(r.URL.Path, "/map") {
-		mapTask(c, h.baseUrl, h.pipeline, taskKey, r)
-	} else if strings.HasSuffix(r.URL.Path, "/mapcomplete") {
-		mapCompleteTask(c, h.pipeline, taskKey, r)
+		mapTask(c, h.baseUrl, h.pipeline, taskKey, w, r)
 	} else if strings.HasSuffix(r.URL.Path, "/mapstatus") ||
 		strings.HasSuffix(r.URL.Path, "/reducestatus") {
 

@@ -23,31 +23,19 @@ import (
 	"net/url"
 	"runtime"
 	"strconv"
+	"time"
 )
 
-func mapCompleteTask(c appengine.Context, pipeline MapReducePipeline, taskKey *datastore.Key, r *http.Request) {
-	jobKey, complete, err := parseCompleteRequest(c, pipeline, taskKey, r)
+func mapMonitorTask(c appengine.Context, pipeline MapReducePipeline, jobKey *datastore.Key, r *http.Request) {
+	start := time.Now()
+
+	job, err := waitForStageCompletion(c, pipeline, jobKey, StageMapping, StageReducing)
 	if err != nil {
-		c.Errorf("failed map task %s: %s\n", taskKey.Encode(), err)
-		return
-	} else if complete {
+		c.Criticalf("waitForStageCompletion() failed: %s", err)
 		return
 	}
 
-	done, job, err := taskComplete(c, jobKey, StageMapping, StageReducing)
-	if err != nil {
-		c.Errorf("error getting map task complete status: %s", err.Error())
-		return
-	}
-
-	// we'll never get here if the task was marked failed because of taskComplete's check
-	// of the current stage
-
-	if !done {
-		c.Infof("map %d complete: %d jobs remaining", taskKey.IntID(), job.TasksRunning)
-		return
-	}
-
+	// erm... we just did this in jobStageComplete. dumb to do it again
 	mapTasks, err := gatherTasks(c, jobKey, TaskTypeMap)
 	if err != nil {
 		jobFailed(c, pipeline, jobKey, fmt.Errorf("error loading tasks after map complete: %s", err.Error()))
@@ -72,7 +60,7 @@ func mapCompleteTask(c appengine.Context, pipeline MapReducePipeline, taskKey *d
 
 	tasks := make([]JobTask, 0, len(job.WriterNames))
 	taskKeys := make([]*datastore.Key, 0, len(job.WriterNames))
-	firstId, _, err := datastore.AllocateIDs(c, TaskEntity, jobKey, len(job.WriterNames))
+	firstId, _, err := datastore.AllocateIDs(c, TaskEntity, nil, len(job.WriterNames))
 	if err != nil {
 		jobFailed(c, pipeline, jobKey, fmt.Errorf("failed to allocate ids for reduce tasks: %s", err.Error()))
 		return
@@ -82,7 +70,7 @@ func mapCompleteTask(c appengine.Context, pipeline MapReducePipeline, taskKey *d
 		shards := storageNames[shard]
 
 		if len(shards) > 0 {
-			taskKey := datastore.NewKey(c, TaskEntity, "", firstId, jobKey)
+			taskKey := datastore.NewKey(c, TaskEntity, "", firstId, nil)
 			taskKeys = append(taskKeys, taskKey)
 			url := fmt.Sprintf("%s/reduce?taskKey=%s;shard=%d;writer=%s",
 				job.UrlPrefix, taskKey.Encode(), shard, url.QueryEscape(job.WriterNames[shard]))
@@ -91,7 +79,6 @@ func mapCompleteTask(c appengine.Context, pipeline MapReducePipeline, taskKey *d
 
 			tasks = append(tasks, JobTask{
 				Status:              TaskStatusPending,
-				RunCount:            0,
 				Url:                 url,
 				ReadFrom:            shards,
 				SeparateReduceItems: job.SeparateReduceItems,
@@ -111,11 +98,18 @@ func mapCompleteTask(c appengine.Context, pipeline MapReducePipeline, taskKey *d
 			return
 		}
 	}
+
+	if err := pipeline.PostStatus(c, fmt.Sprintf("%s/reduce-monitor?jobKey=%s", job.UrlPrefix, jobKey.Encode())); err != nil {
+		c.Criticalf("failed to start map monitor task: %s", err)
+	}
+
+	c.Infof("mapping complete after %s of monitoring ", time.Now().Sub(start))
 }
 
-func mapTask(c appengine.Context, baseUrl string, mr MapReducePipeline, taskKey *datastore.Key, r *http.Request) {
+func mapTask(c appengine.Context, baseUrl string, mr MapReducePipeline, taskKey *datastore.Key, w http.ResponseWriter, r *http.Request) {
 	var finalErr error
 	var shardNames map[string]int
+	var task JobTask
 
 	defer func() {
 		if r := recover(); r != nil {
@@ -123,24 +117,26 @@ func mapTask(c appengine.Context, baseUrl string, mr MapReducePipeline, taskKey 
 			bytes := runtime.Stack(stack, false)
 			c.Criticalf("panic inside of map task %s: %s\n%s\n", taskKey.Encode(), r, stack[0:bytes])
 			errMsg := fmt.Sprintf("%s", r)
-			mr.PostStatus(c, fmt.Sprintf("%s/mapcomplete?taskKey=%s;status=error;error=%s", baseUrl, taskKey.Encode(), url.QueryEscape(errMsg)))
+
+			if _, err := updateTask(c, taskKey, TaskStatusFailed, errMsg, nil); err != nil {
+				panic(fmt.Errorf("Could not update task with failure: %s", err))
+			}
 		}
 	}()
 
-	if task, err := getTask(c, taskKey); err != nil {
-		err := fmt.Errorf("failed to get map task status: %s", err)
-		c.Criticalf("%s", err)
-		mr.PostStatus(c, fmt.Sprintf("%s/mapcomplete?taskKey=%s;status=error;error=%s", baseUrl, taskKey.Encode(), url.QueryEscape(err.Error())))
-	} else if task.Status == TaskStatusRunning {
-		// we think we're already running, but we got here. that means we failed
-		// unexpectedly.
-		errorType := "again"
-		err := "restarted unexpectedly"
-		if _, err := updateTask(c, taskKey, TaskStatusPending, "", ""); err != nil {
-			c.Errorf("failed to reset task to running status: %s", err)
-		}
-		mr.PostStatus(c, fmt.Sprintf("%s/mapcomplete?taskKey=%s;status=%s;error=%s", baseUrl, taskKey.Encode(), errorType, url.QueryEscape(err)))
+	start := time.Now()
+
+	if t, err := getTask(c, taskKey); err != nil {
+		c.Criticalf("failed to get map task status: %s", err)
+		http.Error(w, "could not read task status", 500) // this will run us again
 		return
+	} else {
+		if t.Status == TaskStatusRunning {
+			// we think we're already running, but we got here. that means we failed
+			// unexpectedly.
+			c.Infof("restarted automatically -- running again")
+		}
+		task = t
 	}
 
 	_, err := updateTask(c, taskKey, TaskStatusRunning, "", nil)
@@ -170,19 +166,26 @@ func mapTask(c appengine.Context, baseUrl string, mr MapReducePipeline, taskKey 
 
 	if finalErr == nil {
 		if _, err := updateTask(c, taskKey, TaskStatusDone, "", shardNames); err != nil {
-			panic(fmt.Errorf("Could not update task: %s", err))
+			c.Criticalf("Could not update task: %s", err)
+			http.Error(w, "could not update task", 500)
+			return
 		}
-		mr.PostStatus(c, fmt.Sprintf("%s/mapcomplete?taskKey=%s;status=done", baseUrl, taskKey.Encode()))
 	} else {
-		errorType := "error"
 		if _, ok := finalErr.(tryAgainError); ok {
 			// wasn't fatal, go for it
-			errorType = "again"
+			if retryErr := retryTask(c, mr, task.Job, taskKey); retryErr != nil {
+				c.Errorf("error retrying: %s (task failed due to: %s)", retryErr, finalErr)
+			} else {
+				c.Infof("retrying task due to %s", finalErr)
+			}
+		} else {
+			if _, err := updateTask(c, taskKey, TaskStatusFailed, finalErr.Error(), nil); err != nil {
+				panic(fmt.Errorf("Could not update task with failure: %s", err))
+			}
 		}
-
-		updateTask(c, taskKey, TaskStatusFailed, finalErr.Error(), nil)
-		mr.PostStatus(c, fmt.Sprintf("%s/mapcomplete?taskKey=%s;status=%s;error=%s", baseUrl, taskKey.Encode(), errorType, url.QueryEscape(finalErr.Error())))
 	}
+
+	c.Infof("mapper done after %s", time.Now().Sub(start))
 }
 
 func mapperFunc(c appengine.Context, mr MapReducePipeline, reader SingleInputReader, shardCount int,

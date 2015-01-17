@@ -26,7 +26,6 @@ table,td,th {
     <th align="center">Url</th>
     <th align="center">Stage</th>
     <th align="center">Updated Time</th>
-    <th align="center">Tasks Running</th>
     <th></td>
 </tr>
 
@@ -40,7 +39,6 @@ table,td,th {
     <td>{{$job.UrlPrefix}}</td>
     <td align="center">{{$job.Stage}}</td>
     <td>{{$job.UpdatedAt}}</td>
-    <td align="center">{{$job.TasksRunning}}</td>
     <td><button onclick="location.href='delete?id={{$id}}'">Delete</button></td>
 </tr>
 {{end}}
@@ -95,7 +93,7 @@ func ConsoleHandler(w http.ResponseWriter, r *http.Request) {
 		id, _ := strconv.ParseInt(r.FormValue("id"), 10, 64)
 		jobKey := datastore.NewKey(c, JobEntity, "", id, nil)
 
-		q := datastore.NewQuery(TaskEntity).Ancestor(jobKey)
+		q := datastore.NewQuery(TaskEntity).Filter("Job =", jobKey)
 		var tasks []JobTask
 		taskKeys, err := q.GetAll(c, &tasks)
 		if err != nil {
