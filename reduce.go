@@ -20,7 +20,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"runtime"
 	"time"
 )
@@ -47,76 +46,47 @@ func reduceMonitorTask(c appengine.Context, pipeline MapReducePipeline, jobKey *
 func reduceTask(c appengine.Context, baseUrl string, mr MapReducePipeline, taskKey *datastore.Key, w http.ResponseWriter, r *http.Request) {
 	var writer SingleOutputWriter
 	var task JobTask
+	var err error
 
 	start := time.Now()
+
+	if task, err = startTask(c, mr, taskKey); err != nil {
+		c.Criticalf("failed updating task to running: %s", err)
+		http.Error(w, err.Error(), 500) // this will run us again
+		return
+	}
 
 	defer func() {
 		if r := recover(); r != nil {
 			stack := make([]byte, 16384)
 			bytes := runtime.Stack(stack, false)
 			c.Criticalf("panic inside of reduce task %s: %s\n%s\n", taskKey.Encode(), r, stack[0:bytes])
-			errMsg := fmt.Sprintf("%s", r)
 
-			if _, err := updateTask(c, taskKey, TaskStatusFailed, errMsg, nil); err != nil {
-				panic(fmt.Errorf("Could not update task with failure: %s", err))
+			if err := retryTask(c, mr, task.Job, taskKey); err != nil {
+				panic(fmt.Errorf("failed to retry task after panic: %s", err))
 			}
 		}
 	}()
 
-	if t, err := getTask(c, taskKey); err != nil {
-		c.Criticalf("failed to get reduce task status: %s", err)
-		http.Error(w, "could not read task status", 500) // this will run us again
-		return
-	} else if task.Status == TaskStatusRunning {
-		if t.Status == TaskStatusRunning {
-			// we think we're already running, but we got here. that means we failed
-			// unexpectedly.
-			c.Infof("restarted automatically -- running again")
-		}
-		task = t
-	}
-
-	task, err := updateTask(c, taskKey, TaskStatusRunning, "", nil)
-	if err != nil {
-		err := fmt.Errorf("failed to update reduce task to running: %s", err)
-		c.Criticalf("%s", err)
-		mr.PostStatus(c, fmt.Sprintf("%s/reducecomplete?taskKey=%s;status=error;error=%s", baseUrl, taskKey.Encode(), url.QueryEscape(err.Error())))
-	}
-
 	mr.SetReduceParameters(r.FormValue("json"))
 
-	var finalError error
+	var finalErr error
 	if writerName := r.FormValue("writer"); writerName == "" {
-		finalError = fmt.Errorf("writer parameter required")
+		finalErr = fmt.Errorf("writer parameter required")
 	} else if writer, err = mr.WriterFromName(c, writerName); err != nil {
-		finalError = fmt.Errorf("error getting writer: %s", err.Error())
+		finalErr = fmt.Errorf("error getting writer: %s", err.Error())
 	} else {
-		finalError = ReduceFunc(c, mr, writer, task.ReadFrom, task.SeparateReduceItems,
+		finalErr = ReduceFunc(c, mr, writer, task.ReadFrom, task.SeparateReduceItems,
 			makeStatusUpdateFunc(c, mr, fmt.Sprintf("%s/reducestatus", baseUrl), taskKey.Encode()))
 	}
 
-	if finalError == nil {
-		if _, err := updateTask(c, taskKey, TaskStatusDone, "", writer.ToName()); err != nil {
-			c.Criticalf("Could not update task: %s", err)
-			http.Error(w, "could not update task", 500)
-			return
-		}
-	} else {
-		if _, ok := finalError.(tryAgainError); ok {
-			// wasn't fatal, go for it
-			if retryErr := retryTask(c, mr, task.Job, taskKey); retryErr != nil {
-				c.Errorf("error retrying: %s (task failed due to: %s)", retryErr, finalError)
-			} else {
-				c.Infof("retrying task due to %s", finalError)
-			}
-		} else {
-			if _, err := updateTask(c, taskKey, TaskStatusFailed, finalError.Error(), nil); err != nil {
-				panic(fmt.Errorf("Could not update task with failure: %s", err))
-			}
-		}
-	}
-
 	writer.Close(c)
+
+	if err := endTask(c, mr, task.Job, taskKey, finalErr, writer.ToName()); err != nil {
+		c.Criticalf("Could not finish task: %s", err)
+		http.Error(w, err.Error(), 500)
+		return
+	}
 
 	c.Infof("reducer done after %s", time.Now().Sub(start))
 }

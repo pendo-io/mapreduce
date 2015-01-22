@@ -248,8 +248,6 @@ func jobStageComplete(c appengine.Context, jobKey *datastore.Key, taskCount int,
 
 	if finalErr != nil {
 		c.Criticalf("taskComplete failed: %s", finalErr)
-	} else {
-		c.Criticalf("taskComplete complete")
 	}
 
 	return
@@ -259,7 +257,6 @@ func getTask(c appengine.Context, taskKey *datastore.Key) (JobTask, error) {
 	var task JobTask
 
 	err := backoff.Retry(func() error {
-		c.Infof("trying task read")
 		return datastore.Get(c, taskKey, &task)
 	}, mrBackOff())
 
@@ -388,7 +385,7 @@ func (q AppengineTaskQueue) PostStatus(c appengine.Context, taskUrl string) erro
 	return err
 }
 
-func retryTask(c appengine.Context, pipeline MapReducePipeline, jobKey *datastore.Key, taskKey *datastore.Key) error {
+func retryTask(c appengine.Context, taskIntf TaskInterface, jobKey *datastore.Key, taskKey *datastore.Key) error {
 	var task JobTask
 	var job JobInfo
 	if err := datastore.Get(c, taskKey, &task); err != nil {
@@ -403,7 +400,7 @@ func retryTask(c appengine.Context, pipeline MapReducePipeline, jobKey *datastor
 	task.Status = TaskStatusPending
 	if _, err := datastore.Put(c, taskKey, &task); err != nil {
 		return err
-	} else if err := pipeline.PostTask(c, task.Url, job.JsonParameters); err != nil {
+	} else if err := taskIntf.PostTask(c, task.Url, job.JsonParameters); err != nil {
 		return err
 	}
 
@@ -473,4 +470,42 @@ func doWaitForStageCompletion(c appengine.Context, taskIntf TaskInterface, jobKe
 	}
 
 	return job, nil
+}
+
+func startTask(c appengine.Context, taskIntf TaskInterface, taskKey *datastore.Key) (JobTask, error) {
+	if task, err := getTask(c, taskKey); err != nil {
+		return JobTask{}, fmt.Errorf("failed to get map task status: %s", err)
+	} else if task.Status == TaskStatusRunning {
+		// we think we're already running, but we got here. that means we failed
+		// unexpectedly.
+		c.Infof("restarted automatically -- running again")
+		return task, nil
+	} else if task, err := updateTask(c, taskKey, TaskStatusRunning, "", nil); err != nil {
+		return JobTask{}, fmt.Errorf("failed to update map task to running: %s", err)
+	} else {
+		return task, nil
+	}
+}
+
+func endTask(c appengine.Context, taskIntf TaskInterface, jobKey *datastore.Key, taskKey *datastore.Key, resultErr error, result interface{}) error {
+	if resultErr == nil {
+		if _, err := updateTask(c, taskKey, TaskStatusDone, "", result); err != nil {
+			return fmt.Errorf("Could not update task: %s", err)
+		}
+	} else {
+		if _, ok := resultErr.(tryAgainError); ok {
+			// wasn't fatal, go for it
+			if retryErr := retryTask(c, taskIntf, jobKey, taskKey); retryErr != nil {
+				return fmt.Errorf("error retrying: %s (task failed due to: %s)", retryErr, resultErr)
+			} else {
+				c.Infof("retrying task due to %s", resultErr)
+			}
+		} else {
+			if _, err := updateTask(c, taskKey, TaskStatusFailed, resultErr.Error(), nil); err != nil {
+				return fmt.Errorf("Could not update task with failure: %s", err)
+			}
+		}
+	}
+
+	return nil
 }

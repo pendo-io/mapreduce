@@ -116,35 +116,21 @@ func mapTask(c appengine.Context, baseUrl string, mr MapReducePipeline, taskKey 
 			stack := make([]byte, 16384)
 			bytes := runtime.Stack(stack, false)
 			c.Criticalf("panic inside of map task %s: %s\n%s\n", taskKey.Encode(), r, stack[0:bytes])
-			errMsg := fmt.Sprintf("%s", r)
 
-			if _, err := updateTask(c, taskKey, TaskStatusFailed, errMsg, nil); err != nil {
-				panic(fmt.Errorf("Could not update task with failure: %s", err))
+			if err := retryTask(c, mr, task.Job, taskKey); err != nil {
+				panic(fmt.Errorf("failed to retry task after panic: %s", err))
 			}
 		}
 	}()
 
 	start := time.Now()
 
-	if t, err := getTask(c, taskKey); err != nil {
-		c.Criticalf("failed to get map task status: %s", err)
-		http.Error(w, "could not read task status", 500) // this will run us again
+	if t, err := startTask(c, mr, taskKey); err != nil {
+		c.Criticalf("failed updating task to running: %s", err)
+		http.Error(w, err.Error(), 500) // this will run us again
 		return
 	} else {
-		if t.Status == TaskStatusRunning {
-			// we think we're already running, but we got here. that means we failed
-			// unexpectedly.
-			c.Infof("restarted automatically -- running again")
-		}
 		task = t
-	}
-
-	_, err := updateTask(c, taskKey, TaskStatusRunning, "", nil)
-	if err != nil {
-		err := fmt.Errorf("failed to update map task to running: %s", err)
-		c.Criticalf("%s", err)
-		mr.PostStatus(c, fmt.Sprintf("%s/mapcomplete?taskKey=%s;status=error;error=%s", baseUrl, taskKey.Encode(), url.QueryEscape(err.Error())))
-		return
 	}
 
 	jsonParameters := r.FormValue("json")
@@ -164,25 +150,10 @@ func mapTask(c appengine.Context, baseUrl string, mr MapReducePipeline, taskKey 
 			makeStatusUpdateFunc(c, mr, fmt.Sprintf("%s/mapstatus", baseUrl), taskKey.Encode()))
 	}
 
-	if finalErr == nil {
-		if _, err := updateTask(c, taskKey, TaskStatusDone, "", shardNames); err != nil {
-			c.Criticalf("Could not update task: %s", err)
-			http.Error(w, "could not update task", 500)
-			return
-		}
-	} else {
-		if _, ok := finalErr.(tryAgainError); ok {
-			// wasn't fatal, go for it
-			if retryErr := retryTask(c, mr, task.Job, taskKey); retryErr != nil {
-				c.Errorf("error retrying: %s (task failed due to: %s)", retryErr, finalErr)
-			} else {
-				c.Infof("retrying task due to %s", finalErr)
-			}
-		} else {
-			if _, err := updateTask(c, taskKey, TaskStatusFailed, finalErr.Error(), nil); err != nil {
-				panic(fmt.Errorf("Could not update task with failure: %s", err))
-			}
-		}
+	if err := endTask(c, mr, task.Job, taskKey, finalErr, shardNames); err != nil {
+		c.Criticalf("Could not finish task: %s", err)
+		http.Error(w, err.Error(), 500)
+		return
 	}
 
 	c.Infof("mapper done after %s", time.Now().Sub(start))
