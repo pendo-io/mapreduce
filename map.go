@@ -26,13 +26,18 @@ import (
 	"time"
 )
 
-func mapMonitorTask(c appengine.Context, pipeline MapReducePipeline, jobKey *datastore.Key, r *http.Request) {
+func mapMonitorTask(c appengine.Context, pipeline MapReducePipeline, jobKey *datastore.Key, r *http.Request, timeout time.Duration) {
 	start := time.Now()
 
-	job, err := waitForStageCompletion(c, pipeline, jobKey, StageMapping, StageReducing)
+	job, err := waitForStageCompletion(c, pipeline, jobKey, StageMapping, StageReducing, timeout)
 	if err != nil {
 		c.Criticalf("waitForStageCompletion() failed: %s", err)
 		return
+	} else if job.Stage == StageMapping {
+		c.Infof("wait timed out -- restarting monitor")
+		if err := pipeline.PostStatus(c, fmt.Sprintf("%s/map-monitor?jobKey=%s", job.UrlPrefix, jobKey.Encode())); err != nil {
+			c.Criticalf("failed to start map monitor task: %s", err)
+		}
 	}
 
 	// erm... we just did this in jobStageComplete. dumb to do it again
@@ -100,7 +105,7 @@ func mapMonitorTask(c appengine.Context, pipeline MapReducePipeline, jobKey *dat
 	}
 
 	if err := pipeline.PostStatus(c, fmt.Sprintf("%s/reduce-monitor?jobKey=%s", job.UrlPrefix, jobKey.Encode())); err != nil {
-		c.Criticalf("failed to start map monitor task: %s", err)
+		c.Criticalf("failed to start reduce monitor task: %s", err)
 	}
 
 	c.Infof("mapping complete after %s of monitoring ", time.Now().Sub(start))

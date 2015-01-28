@@ -427,12 +427,12 @@ func jobFailed(c appengine.Context, taskIntf TaskInterface, jobKey *datastore.Ke
 // waitForStageCompletion() is split up like this for testability
 type jobStageCompletionFunc func(c appengine.Context, jobKey *datastore.Key, taskCount int, expectedStage, nextStage JobStage) (stageChanged bool, job JobInfo, finalErr error)
 
-func waitForStageCompletion(c appengine.Context, taskIntf TaskInterface, jobKey *datastore.Key, currentStage, nextStage JobStage) (JobInfo, error) {
-	return doWaitForStageCompletion(c, taskIntf, jobKey, currentStage, nextStage, 5*time.Second, jobStageComplete)
+func waitForStageCompletion(c appengine.Context, taskIntf TaskInterface, jobKey *datastore.Key, currentStage, nextStage JobStage, timeout time.Duration) (JobInfo, error) {
+	return doWaitForStageCompletion(c, taskIntf, jobKey, currentStage, nextStage, 5*time.Second, jobStageComplete, timeout)
 }
 
 // if err != nil, this failed (which should never happen, and should be considered fatal)
-func doWaitForStageCompletion(c appengine.Context, taskIntf TaskInterface, jobKey *datastore.Key, currentStage, nextStage JobStage, delay time.Duration, checkCompletion jobStageCompletionFunc) (JobInfo, error) {
+func doWaitForStageCompletion(c appengine.Context, taskIntf TaskInterface, jobKey *datastore.Key, currentStage, nextStage JobStage, delay time.Duration, checkCompletion jobStageCompletionFunc, timeout time.Duration) (JobInfo, error) {
 	var job JobInfo
 
 	taskCount := 0
@@ -444,7 +444,9 @@ func doWaitForStageCompletion(c appengine.Context, taskIntf TaskInterface, jobKe
 		taskCount = job.TaskCount
 	}
 
-	for {
+	start := time.Now()
+
+	for time.Now().Sub(start) < timeout {
 		stageChanged, newJob, err := checkCompletion(c, jobKey, taskCount, currentStage, nextStage)
 		if !stageChanged {
 			// this ignores errors.. it should instead sleep a bit longer and maybe even resubmit the

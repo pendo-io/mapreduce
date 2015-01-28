@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // MappedData items are key/value pairs returned from the Map stage. The items are rearranged
@@ -216,9 +217,9 @@ func (h urlHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, fmt.Sprintf("invalid jobKey: %s", err.Error()),
 				http.StatusBadRequest)
 		} else if strings.HasSuffix(r.URL.Path, "/map-monitor") {
-			mapMonitorTask(c, h.pipeline, jobKey, r)
+			mapMonitorTask(c, h.pipeline, jobKey, r, 5*time.Minute)
 		} else {
-			reduceMonitorTask(c, h.pipeline, jobKey, r)
+			reduceMonitorTask(c, h.pipeline, jobKey, r, 5*time.Minute)
 		}
 
 		return
