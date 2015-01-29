@@ -41,7 +41,7 @@ func mapMonitorTask(c appengine.Context, pipeline MapReducePipeline, jobKey *dat
 	}
 
 	// erm... we just did this in jobStageComplete. dumb to do it again
-	mapTasks, err := gatherTasks(c, jobKey, TaskTypeMap)
+	mapTasks, err := gatherTasks(c, job)
 	if err != nil {
 		jobFailed(c, pipeline, jobKey, fmt.Errorf("error loading tasks after map complete: %s", err.Error()))
 		return
@@ -63,22 +63,18 @@ func mapMonitorTask(c appengine.Context, pipeline MapReducePipeline, jobKey *dat
 		}
 	}
 
-	tasks := make([]JobTask, 0, len(job.WriterNames))
-	taskKeys := make([]*datastore.Key, 0, len(job.WriterNames))
 	firstId, _, err := datastore.AllocateIDs(c, TaskEntity, nil, len(job.WriterNames))
 	if err != nil {
 		jobFailed(c, pipeline, jobKey, fmt.Errorf("failed to allocate ids for reduce tasks: %s", err.Error()))
 		return
 	}
+	taskKeys := makeTaskKeys(c, firstId, len(job.WriterNames))
+	tasks := make([]JobTask, 0, len(job.WriterNames))
 
 	for shard := range job.WriterNames {
-		shards := storageNames[shard]
-
-		if len(shards) > 0 {
-			taskKey := datastore.NewKey(c, TaskEntity, "", firstId, nil)
-			taskKeys = append(taskKeys, taskKey)
+		if shards := storageNames[shard]; len(shards) > 0 {
 			url := fmt.Sprintf("%s/reduce?taskKey=%s;shard=%d;writer=%s",
-				job.UrlPrefix, taskKey.Encode(), shard, url.QueryEscape(job.WriterNames[shard]))
+				job.UrlPrefix, taskKeys[len(tasks)].Encode(), shard, url.QueryEscape(job.WriterNames[shard]))
 
 			firstId++
 
@@ -91,6 +87,8 @@ func mapMonitorTask(c appengine.Context, pipeline MapReducePipeline, jobKey *dat
 			})
 		}
 	}
+
+	taskKeys = taskKeys[0:len(tasks)]
 
 	if err := createTasks(c, jobKey, taskKeys, tasks, StageReducing); err != nil {
 		jobFailed(c, pipeline, jobKey, fmt.Errorf("failed to create reduce tasks: %s", err.Error()))

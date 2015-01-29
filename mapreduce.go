@@ -147,17 +147,14 @@ func Run(c appengine.Context, job MapReduceJob) (int64, error) {
 		return 0, fmt.Errorf("creating job: %s", err)
 	}
 
-	taskKeys := make([]*datastore.Key, len(readerNames))
-	tasks := make([]JobTask, len(readerNames))
 	firstId, _, err := datastore.AllocateIDs(c, TaskEntity, nil, len(readerNames))
 	if err != nil {
 		return 0, fmt.Errorf("allocating task ids: %s", err)
 	}
+	taskKeys := makeTaskKeys(c, firstId, len(readerNames))
+	tasks := make([]JobTask, len(readerNames))
 
 	for i, readerName := range readerNames {
-		taskKeys[i] = datastore.NewKey(c, TaskEntity, "", firstId, nil)
-		firstId++
-
 		url := fmt.Sprintf("%s/map?taskKey=%s;reader=%s;shards=%d",
 			job.UrlPrefix, taskKeys[i].Encode(), readerName,
 			reducerCount)

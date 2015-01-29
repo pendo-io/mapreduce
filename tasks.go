@@ -67,10 +67,11 @@ type JobInfo struct {
 	UrlPrefix           string
 	Stage               JobStage
 	UpdatedAt           time.Time
-	TaskCount           int `datastore:"TasksRunning,noindex"`
-	RetryCount          int
-	SeparateReduceItems bool
-	OnCompleteUrl       string
+	TaskCount           int      `datastore:"TasksRunning,noindex"`
+	FirstTaskId         int64    `datastore:",noindex"`
+	RetryCount          int      `datastore:",noindex"`
+	SeparateReduceItems bool     `datastore:",noindex"`
+	OnCompleteUrl       string   `datastore:",noindex"`
 	WriterNames         []string `datastore:",noindex"`
 	JsonParameters      string   `datastore:",noindex"`
 }
@@ -117,9 +118,14 @@ func createJob(c appengine.Context, urlPrefix string, writerNames []string, onCo
 
 func createTasks(c appengine.Context, jobKey *datastore.Key, taskKeys []*datastore.Key, tasks []JobTask, newStage JobStage) error {
 	now := time.Now()
+	firstId := taskKeys[0].IntID()
 	for i := range tasks {
 		tasks[i].StartTime = now
 		tasks[i].Job = jobKey
+
+		if taskKeys[i].IntID() < firstId {
+			firstId = taskKeys[i].IntID()
+		}
 	}
 
 	if err := backoff.Retry(func() error {
@@ -138,6 +144,7 @@ func createTasks(c appengine.Context, jobKey *datastore.Key, taskKeys []*datasto
 			}
 
 			job.TaskCount = len(tasks)
+			job.FirstTaskId = firstId
 			job.Stage = newStage
 
 			_, err := datastore.Put(c, jobKey, &job)
@@ -190,7 +197,7 @@ func (t taskError) Error() string { return "taskError " + t.err }
 //
 // caller needs to check the stage in the final job; if stageChanged is true it will be either nextStage or StageFailed.
 // If StageFailed then at least one of the underlying tasks failed and the reason will appear as a taskError{} in err
-func jobStageComplete(c appengine.Context, jobKey *datastore.Key, taskCount int, expectedStage, nextStage JobStage) (stageChanged bool, job JobInfo, finalErr error) {
+func jobStageComplete(c appengine.Context, jobKey *datastore.Key, taskKeys []*datastore.Key, expectedStage, nextStage JobStage) (stageChanged bool, job JobInfo, finalErr error) {
 	if c, err := datastore.NewQuery(TaskEntity).Filter("Done =", nil).Limit(1).KeysOnly().Count(c); err != nil {
 		finalErr = err
 		return
@@ -198,20 +205,11 @@ func jobStageComplete(c appengine.Context, jobKey *datastore.Key, taskCount int,
 		return
 	}
 
-	// looks like everything is done. check to see if anything failed, because if it did we need to mark
-	// this task as failed and return an error
-	taskType := TaskTypeMap
-	if expectedStage == StageReducing {
-		taskType = TaskTypeReduce
-	}
-
+	tasks := make([]JobTask, len(taskKeys))
 	// gatherTasks is eventually consistent. that's okay here, because
 	// we'll eventually get TaskStatusFailed or TaskStatusDone
-	if tasks, err := gatherTasks(c, jobKey, taskType); err != nil {
+	if err := datastore.GetMulti(c, taskKeys, tasks); err != nil {
 		finalErr = err
-		return
-	} else if len(tasks) != taskCount {
-		// we didn't get all the tasks so we can't tell what's going on
 		return
 	} else {
 		for i := range tasks {
@@ -319,9 +317,8 @@ func GetJob(c appengine.Context, jobId int64) (JobInfo, error) {
 	return getJob(c, datastore.NewKey(c, JobEntity, "", jobId, nil))
 }
 
-func GetJobResults(c appengine.Context, jobId int64) ([]interface{}, error) {
-	jobKey := datastore.NewKey(c, JobEntity, "", jobId, nil)
-	tasks, err := gatherTasks(c, jobKey, TaskTypeReduce)
+func GetJobTaskResults(c appengine.Context, job JobInfo) ([]interface{}, error) {
+	tasks, err := gatherTasks(c, job)
 	if err != nil {
 		return nil, err
 	}
@@ -347,22 +344,23 @@ func RemoveJob(c appengine.Context, jobId int64) error {
 	return datastore.DeleteMulti(c, keys)
 }
 
-func gatherTasks(c appengine.Context, jobKey *datastore.Key, taskType TaskType) ([]JobTask, error) {
-	q := datastore.NewQuery(TaskEntity).Filter("Job =", jobKey)
-	var tasks []JobTask
-	_, err := q.GetAll(c, &tasks)
-	if err != nil {
+func makeTaskKeys(c appengine.Context, firstId int64, count int) []*datastore.Key {
+	taskKeys := make([]*datastore.Key, count)
+	for i := 0; i < count; i++ {
+		taskKeys[i] = datastore.NewKey(c, TaskEntity, "", firstId+int64(i), nil)
+	}
+
+	return taskKeys
+}
+
+func gatherTasks(c appengine.Context, job JobInfo) ([]JobTask, error) {
+	taskKeys := makeTaskKeys(c, job.FirstTaskId, job.TaskCount)
+	tasks := make([]JobTask, len(taskKeys))
+	if err := datastore.GetMulti(c, taskKeys, tasks); err != nil {
 		return nil, err
 	}
 
-	finalTasks := make([]JobTask, 0)
-	for _, task := range tasks {
-		if task.Type == taskType {
-			finalTasks = append(finalTasks, task)
-		}
-	}
-
-	return finalTasks, nil
+	return tasks, nil
 }
 
 // AppengineTaskQueue implements TaskInterface via appengine task queues
@@ -425,7 +423,7 @@ func jobFailed(c appengine.Context, taskIntf TaskInterface, jobKey *datastore.Ke
 }
 
 // waitForStageCompletion() is split up like this for testability
-type jobStageCompletionFunc func(c appengine.Context, jobKey *datastore.Key, taskCount int, expectedStage, nextStage JobStage) (stageChanged bool, job JobInfo, finalErr error)
+type jobStageCompletionFunc func(c appengine.Context, jobKey *datastore.Key, taskKeys []*datastore.Key, expectedStage, nextStage JobStage) (stageChanged bool, job JobInfo, finalErr error)
 
 func waitForStageCompletion(c appengine.Context, taskIntf TaskInterface, jobKey *datastore.Key, currentStage, nextStage JobStage, timeout time.Duration) (JobInfo, error) {
 	return doWaitForStageCompletion(c, taskIntf, jobKey, currentStage, nextStage, 5*time.Second, jobStageComplete, timeout)
@@ -434,20 +432,20 @@ func waitForStageCompletion(c appengine.Context, taskIntf TaskInterface, jobKey 
 // if err != nil, this failed (which should never happen, and should be considered fatal)
 func doWaitForStageCompletion(c appengine.Context, taskIntf TaskInterface, jobKey *datastore.Key, currentStage, nextStage JobStage, delay time.Duration, checkCompletion jobStageCompletionFunc, timeout time.Duration) (JobInfo, error) {
 	var job JobInfo
+	var taskKeys []*datastore.Key
 
-	taskCount := 0
 	if job, err := getJob(c, jobKey); err != nil {
 		c.Criticalf("monitor failed to load job: %s", err)
 		//http.Error(w, "error loading job", 500)
 		return JobInfo{}, err
 	} else {
-		taskCount = job.TaskCount
+		taskKeys = makeTaskKeys(c, job.FirstTaskId, job.TaskCount)
 	}
 
 	start := time.Now()
 
 	for time.Now().Sub(start) < timeout {
-		stageChanged, newJob, err := checkCompletion(c, jobKey, taskCount, currentStage, nextStage)
+		stageChanged, newJob, err := checkCompletion(c, jobKey, taskKeys, currentStage, nextStage)
 		if !stageChanged {
 			// this ignores errors.. it should instead sleep a bit longer and maybe even resubmit the
 			// monitor job
