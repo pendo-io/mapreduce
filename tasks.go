@@ -322,18 +322,25 @@ func GetJob(c appengine.Context, jobId int64) (JobInfo, error) {
 	return getJob(c, datastore.NewKey(c, JobEntity, "", jobId, nil))
 }
 
-func GetJobTaskStatus(c appengine.Context, job JobInfo) ([]interface{}, error) {
-	tasks, err := gatherTasks(c, job)
-	if err != nil {
+func GetJobTasks(c appengine.Context, job JobInfo) ([]JobTask, error) {
+	if tasks, err := gatherTasks(c, job); err != nil {
 		return nil, err
+	} else {
+		return tasks, nil
 	}
+}
 
-	result := make([]interface{}, len(tasks))
-	for i, task := range tasks {
-		json.Unmarshal([]byte(task.Result), &result[i])
+func GetJobTaskResults(c appengine.Context, job JobInfo) ([]interface{}, error) {
+	if tasks, err := gatherTasks(c, job); err != nil {
+		return nil, err
+	} else {
+		result := make([]interface{}, len(tasks))
+		for i, task := range tasks {
+			json.Unmarshal([]byte(task.Result), &result[i])
+		}
+
+		return result, nil
 	}
-
-	return result, nil
 }
 
 func RemoveJob(c appengine.Context, jobId int64) error {
