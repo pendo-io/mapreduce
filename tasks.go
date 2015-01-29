@@ -74,6 +74,9 @@ type JobInfo struct {
 	OnCompleteUrl       string   `datastore:",noindex"`
 	WriterNames         []string `datastore:",noindex"`
 	JsonParameters      string   `datastore:",noindex"`
+
+	// filled in by getJob
+	Id int64 `datastore:"-"`
 }
 
 // TaskInterface defines how the map and reduce tasks and controlled, and how they report
@@ -310,6 +313,8 @@ func getJob(c appengine.Context, jobKey *datastore.Key) (JobInfo, error) {
 		return nil
 	}, mrBackOff())
 
+	job.Id = jobKey.IntID()
+
 	return job, err
 }
 
@@ -317,7 +322,7 @@ func GetJob(c appengine.Context, jobId int64) (JobInfo, error) {
 	return getJob(c, datastore.NewKey(c, JobEntity, "", jobId, nil))
 }
 
-func GetJobTaskResults(c appengine.Context, job JobInfo) ([]interface{}, error) {
+func GetJobTaskStatus(c appengine.Context, job JobInfo) ([]interface{}, error) {
 	tasks, err := gatherTasks(c, job)
 	if err != nil {
 		return nil, err
@@ -472,7 +477,12 @@ func doWaitForStageCompletion(c appengine.Context, taskIntf TaskInterface, jobKe
 	return job, nil
 }
 
-func startTask(c appengine.Context, taskIntf TaskInterface, taskKey *datastore.Key) (JobTask, error) {
+type startTopIntf interface {
+	TaskInterface
+	TaskStatusChange
+}
+
+func startTask(c appengine.Context, taskIntf startTopIntf, taskKey *datastore.Key) (JobTask, error) {
 	if task, err := getTask(c, taskKey); err != nil {
 		return JobTask{}, fmt.Errorf("failed to get map task status: %s", err)
 	} else if task.Status == TaskStatusRunning {
@@ -483,14 +493,17 @@ func startTask(c appengine.Context, taskIntf TaskInterface, taskKey *datastore.K
 	} else if task, err := updateTask(c, taskKey, TaskStatusRunning, "", nil); err != nil {
 		return JobTask{}, fmt.Errorf("failed to update map task to running: %s", err)
 	} else {
+		taskIntf.Status(task.Job.IntID(), task)
 		return task, nil
 	}
 }
 
-func endTask(c appengine.Context, taskIntf TaskInterface, jobKey *datastore.Key, taskKey *datastore.Key, resultErr error, result interface{}) error {
+func endTask(c appengine.Context, taskIntf startTopIntf, jobKey *datastore.Key, taskKey *datastore.Key, resultErr error, result interface{}) error {
 	if resultErr == nil {
-		if _, err := updateTask(c, taskKey, TaskStatusDone, "", result); err != nil {
+		if task, err := updateTask(c, taskKey, TaskStatusDone, "", result); err != nil {
 			return fmt.Errorf("Could not update task: %s", err)
+		} else {
+			taskIntf.Status(jobKey.IntID(), task)
 		}
 	} else {
 		if _, ok := resultErr.(tryAgainError); ok {

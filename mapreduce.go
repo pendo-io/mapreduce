@@ -63,6 +63,12 @@ type Reducer interface {
 	ReduceComplete(statusUpdate StatusUpdateFunc) ([]interface{}, error)
 }
 
+// TaskStatusChange allows the map reduce framework to notify tasks when their status has changed to RUNNING or DONE. Handy for
+// callbacks. Always called after SetMapParameters() and SetReduceParameters()
+type TaskStatusChange interface {
+	Status(jobId int64, task JobTask)
+}
+
 // FatalError wraps an error. If Map or Reduce returns a FatalError the task will not be retried
 type FatalError struct{ Err error }
 
@@ -90,6 +96,7 @@ type MapReducePipeline interface {
 	ValueHandler
 
 	TaskInterface
+	TaskStatusChange
 }
 
 // MapReduceJob defines a complete map reduce job, which is the pipeline and the parameters the job
@@ -257,4 +264,10 @@ func makeStatusUpdateFunc(c appengine.Context, pipeline MapReducePipeline, urlSt
 			c.Errorf("failed to update task status: %s", err)
 		}
 	}
+}
+
+// IgnoreTaskStatusChange is an implementation of TaskStatusChange which ignores the call
+type IgnoreTaskStatusChange struct{}
+
+func (e *IgnoreTaskStatusChange) Status(jobId int64, task JobTask) {
 }
