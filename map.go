@@ -128,6 +128,12 @@ func mapTask(c appengine.Context, baseUrl string, mr MapReducePipeline, taskKey 
 
 	start := time.Now()
 
+	// we do this before starting the task below so that the parameters are set before
+	// the task status callback is invoked
+	jsonParameters := r.FormValue("json")
+	mr.SetMapParameters(jsonParameters)
+	mr.SetShardParameters(jsonParameters)
+
 	if t, err := startTask(c, mr, taskKey); err != nil {
 		c.Criticalf("failed updating task to running: %s", err)
 		http.Error(w, err.Error(), 500) // this will run us again
@@ -135,10 +141,6 @@ func mapTask(c appengine.Context, baseUrl string, mr MapReducePipeline, taskKey 
 	} else {
 		task = t
 	}
-
-	jsonParameters := r.FormValue("json")
-	mr.SetMapParameters(jsonParameters)
-	mr.SetShardParameters(jsonParameters)
 
 	if readerName := r.FormValue("reader"); readerName == "" {
 		finalErr = fmt.Errorf("reader parameter required")

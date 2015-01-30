@@ -55,6 +55,10 @@ func reduceTask(c appengine.Context, baseUrl string, mr MapReducePipeline, taskK
 
 	start := time.Now()
 
+	// we do this before starting the task below so that the parameters are set before
+	// the task status callback is invoked
+	mr.SetReduceParameters(r.FormValue("json"))
+
 	if task, err = startTask(c, mr, taskKey); err != nil {
 		c.Criticalf("failed updating task to running: %s", err)
 		http.Error(w, err.Error(), 500) // this will run us again
@@ -72,8 +76,6 @@ func reduceTask(c appengine.Context, baseUrl string, mr MapReducePipeline, taskK
 			}
 		}
 	}()
-
-	mr.SetReduceParameters(r.FormValue("json"))
 
 	var finalErr error
 	if writerName := r.FormValue("writer"); writerName == "" {
