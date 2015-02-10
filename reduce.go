@@ -17,8 +17,12 @@ package mapreduce
 import (
 	"appengine"
 	"appengine/datastore"
+	"bytes"
+	"compress/zlib"
+	"encoding/json"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"net/http"
 	"runtime"
 	"time"
@@ -83,7 +87,12 @@ func reduceTask(c appengine.Context, baseUrl string, mr MapReducePipeline, taskK
 	} else if writer, err = mr.WriterFromName(c, writerName); err != nil {
 		finalErr = fmt.Errorf("error getting writer: %s", err.Error())
 	} else {
-		finalErr = ReduceFunc(c, mr, writer, task.ReadFrom, task.SeparateReduceItems,
+		shardReader, _ := zlib.NewReader(bytes.NewBuffer(task.ReadFrom))
+		shardJson, _ := ioutil.ReadAll(shardReader)
+		var shards []string
+		json.Unmarshal(shardJson, &shards)
+
+		finalErr = ReduceFunc(c, mr, writer, shards, task.SeparateReduceItems,
 			makeStatusUpdateFunc(c, mr, fmt.Sprintf("%s/reducestatus", baseUrl), taskKey.Encode()))
 	}
 
@@ -130,7 +139,7 @@ func ReduceFunc(c appengine.Context, mr MapReducePipeline, writer SingleOutputWr
 		result := <-resultsCh
 
 		if result.err != nil {
-			return fmt.Errorf("cannot open intermediate file %s: %s", shardName, result.err)
+			return tryAgainError{fmt.Errorf("cannot open intermediate file %s: %s", shardName, result.err)}
 		}
 
 		merger.addSource(result.iterator)

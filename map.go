@@ -17,6 +17,8 @@ package mapreduce
 import (
 	"appengine"
 	"appengine/datastore"
+	"bytes"
+	"compress/zlib"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -39,6 +41,8 @@ func mapMonitorTask(c appengine.Context, pipeline MapReducePipeline, jobKey *dat
 			c.Criticalf("failed to start map monitor task: %s", err)
 		}
 	}
+
+	c.Infof("map stage completed")
 
 	// erm... we just did this in jobStageComplete. dumb to do it again
 	mapTasks, err := gatherTasks(c, job)
@@ -78,10 +82,16 @@ func mapMonitorTask(c appengine.Context, pipeline MapReducePipeline, jobKey *dat
 
 			firstId++
 
+			shardJson, _ := json.Marshal(shards)
+			shardZ := &bytes.Buffer{}
+			w := zlib.NewWriter(shardZ)
+			w.Write(shardJson)
+			w.Close()
+
 			tasks = append(tasks, JobTask{
 				Status:              TaskStatusPending,
 				Url:                 url,
-				ReadFrom:            shards,
+				ReadFrom:            shardZ.Bytes(),
 				SeparateReduceItems: job.SeparateReduceItems,
 				Type:                TaskTypeReduce,
 			})

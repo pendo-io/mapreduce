@@ -50,16 +50,16 @@ type JobTask struct {
 	Status              TaskStatus `datastore:,noindex`
 	Job                 *datastore.Key
 	Done                *datastore.Key // nil if the task isn't done, job if it is
-	Info                string         `datastore:,noindex`
-	StartTime           time.Time      `datastore:,noindex`
-	UpdatedAt           time.Time      `datastore:,noindex`
-	Type                TaskType       `datastore:,noindex`
-	Retries             int            `datastore:,noindex`
+	Info                string         `datastore:,"noindex"`
+	StartTime           time.Time      `datastore:,"noindex"`
+	UpdatedAt           time.Time      `datastore:,"noindex"`
+	Type                TaskType       `datastore:,"noindex"`
+	Retries             int            `datastore:,"noindex"`
 	SeparateReduceItems bool
 	// this is named intermediate storage sources, and only used for reduce tasks
-	ReadFrom []string `datastore:",noindex"`
-	Url      string   `datastore:",noindex"`
-	Result   string   `datastore:",noindex"`
+	ReadFrom []byte `datastore:",noindex"`
+	Url      string `datastore:",noindex"`
+	Result   string `datastore:",noindex"`
 }
 
 // JobInfo is the entity stored in the datastore defining the MapReduce Job
