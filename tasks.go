@@ -403,7 +403,7 @@ func retryTask(c appengine.Context, taskIntf TaskInterface, jobKey *datastore.Ke
 	} else if err := datastore.Get(c, jobKey, &job); err != nil {
 		return err
 	} else if (task.Retries + 1) >= job.RetryCount {
-		return fmt.Errorf("maxium retries exceeded")
+		return fmt.Errorf("maximum retries exceeded")
 	}
 
 	task.Retries++
@@ -516,14 +516,16 @@ func endTask(c appengine.Context, taskIntf startTopIntf, jobKey *datastore.Key, 
 		if _, ok := resultErr.(tryAgainError); ok {
 			// wasn't fatal, go for it
 			if retryErr := retryTask(c, taskIntf, jobKey, taskKey); retryErr != nil {
-				return fmt.Errorf("error retrying: %s (task failed due to: %s)", retryErr, resultErr)
+				resultErr = fmt.Errorf("error retrying: %s (task failed due to: %s)", retryErr, resultErr)
 			} else {
 				c.Infof("retrying task due to %s", resultErr)
+				return nil
 			}
-		} else {
-			if _, err := updateTask(c, taskKey, TaskStatusFailed, resultErr.Error(), nil); err != nil {
-				return fmt.Errorf("Could not update task with failure: %s", err)
-			}
+		}
+
+		// fatal error
+		if _, err := updateTask(c, taskKey, TaskStatusFailed, resultErr.Error(), nil); err != nil {
+			return fmt.Errorf("Could not update task with failure: %s", err)
 		}
 	}
 
