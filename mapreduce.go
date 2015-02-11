@@ -214,6 +214,11 @@ func MapReduceHandler(baseUrl string, pipeline MapReducePipeline,
 func (h urlHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	c := h.getContext(r)
 
+	monitorTimeout := time.Minute * 5
+	if appengine.IsDevAppServer() {
+		monitorTimeout = time.Second * 10
+	}
+
 	if strings.HasSuffix(r.URL.Path, "/map-monitor") || strings.HasSuffix(r.URL.Path, "/reduce-monitor") {
 		if jobKeyStr := r.FormValue("jobKey"); jobKeyStr == "" {
 			http.Error(w, "jobKey parameter required", http.StatusBadRequest)
@@ -221,9 +226,9 @@ func (h urlHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, fmt.Sprintf("invalid jobKey: %s", err.Error()),
 				http.StatusBadRequest)
 		} else if strings.HasSuffix(r.URL.Path, "/map-monitor") {
-			mapMonitorTask(c, h.pipeline, jobKey, r, 5*time.Minute)
+			mapMonitorTask(c, h.pipeline, jobKey, r, monitorTimeout)
 		} else {
-			reduceMonitorTask(c, h.pipeline, jobKey, r, 5*time.Minute)
+			reduceMonitorTask(c, h.pipeline, jobKey, r, monitorTimeout)
 		}
 
 		return
@@ -248,7 +253,7 @@ func (h urlHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	} else if strings.HasSuffix(r.URL.Path, "/mapstatus") ||
 		strings.HasSuffix(r.URL.Path, "/reducestatus") {
 
-		updateTask(c, taskKey, "", r.FormValue("msg"), nil)
+		updateTask(c, taskKey, "", 0, r.FormValue("msg"), nil)
 	} else {
 		http.Error(w, "unknown request url", http.StatusNotFound)
 		return
@@ -260,7 +265,7 @@ func makeStatusUpdateFunc(c appengine.Context, pipeline MapReducePipeline, urlSt
 		msg := fmt.Sprintf(format, paramList...)
 		if key, err := datastore.DecodeKey(taskKey); err != nil {
 			c.Errorf("failed to decode task key for status: %s", err)
-		} else if _, err := updateTask(c, key, "", msg, nil); err != nil {
+		} else if _, err := updateTask(c, key, "", 0, msg, nil); err != nil {
 			c.Errorf("failed to update task status: %s", err)
 		}
 	}

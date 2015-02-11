@@ -42,7 +42,7 @@ func mapMonitorTask(c appengine.Context, pipeline MapReducePipeline, jobKey *dat
 		}
 	}
 
-	c.Infof("map stage completed")
+	c.Infof("map stage completed -- stage is now %s", job.Stage)
 
 	// erm... we just did this in jobStageComplete. dumb to do it again
 	mapTasks, err := gatherTasks(c, job)
@@ -144,9 +144,13 @@ func mapTask(c appengine.Context, baseUrl string, mr MapReducePipeline, taskKey 
 	mr.SetMapParameters(jsonParameters)
 	mr.SetShardParameters(jsonParameters)
 
-	if t, err := startTask(c, mr, taskKey); err != nil {
+	if t, err, retry := startTask(c, mr, taskKey); err != nil && retry {
 		c.Criticalf("failed updating task to running: %s", err)
 		http.Error(w, err.Error(), 500) // this will run us again
+		return
+	} else if err != nil {
+		c.Criticalf("(fatal) failed updating task to running: %s", err)
+		http.Error(w, err.Error(), 200) // this will run us again
 		return
 	} else {
 		task = t

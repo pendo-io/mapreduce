@@ -63,7 +63,7 @@ table,td,th {
     <th align="center">Id</th>
     <th align="center">Type</th>
     <th align="center">Status</th>
-    <th align="center">Retries</th>
+    <th align="center">Run Count</th>
     <th align="center">Update Time</th>
     <th align="center">Info</th>
 </tr>

@@ -268,8 +268,10 @@ func getTask(c appengine.Context, taskKey *datastore.Key) (JobTask, error) {
 	return task, nil
 }
 
-func updateTask(c appengine.Context, taskKey *datastore.Key, status TaskStatus, info string, result interface{}) (JobTask, error) {
+func updateTask(c appengine.Context, taskKey *datastore.Key, status TaskStatus, tryIncrement int, info string, result interface{}) (JobTask, error) {
 	var task JobTask
+
+	newCount := -1
 
 	err := backoff.Retry(func() error {
 		if err := datastore.Get(c, taskKey, &task); err != nil {
@@ -278,6 +280,13 @@ func updateTask(c appengine.Context, taskKey *datastore.Key, status TaskStatus, 
 
 		task.UpdatedAt = time.Now()
 		task.Info = info
+
+		// this prevents double incrementing if the Put times out but has actually
+		// written the value
+		if newCount == -1 {
+			newCount = task.Retries + tryIncrement
+		}
+		task.Retries = newCount
 
 		if status != "" {
 			task.Status = status
@@ -402,11 +411,8 @@ func retryTask(c appengine.Context, taskIntf TaskInterface, jobKey *datastore.Ke
 		return err
 	} else if err := datastore.Get(c, jobKey, &job); err != nil {
 		return err
-	} else if (task.Retries + 1) >= job.RetryCount {
-		return fmt.Errorf("maximum retries exceeded")
 	}
 
-	task.Retries++
 	task.Status = TaskStatusPending
 	if _, err := datastore.Put(c, taskKey, &task); err != nil {
 		return err
@@ -446,11 +452,12 @@ func doWaitForStageCompletion(c appengine.Context, taskIntf TaskInterface, jobKe
 	var job JobInfo
 	var taskKeys []*datastore.Key
 
-	if job, err := getJob(c, jobKey); err != nil {
+	if j, err := getJob(c, jobKey); err != nil {
 		c.Criticalf("monitor failed to load job: %s", err)
 		//http.Error(w, "error loading job", 500)
 		return JobInfo{}, err
 	} else {
+		job = j
 		taskKeys = makeTaskKeys(c, job.FirstTaskId, job.TaskCount)
 	}
 
@@ -481,6 +488,8 @@ func doWaitForStageCompletion(c appengine.Context, taskIntf TaskInterface, jobKe
 		}
 	}
 
+	c.Infof("after wait job status is %s", job.Stage)
+
 	return job, nil
 }
 
@@ -489,25 +498,39 @@ type startTopIntf interface {
 	TaskStatusChange
 }
 
-func startTask(c appengine.Context, taskIntf startTopIntf, taskKey *datastore.Key) (JobTask, error) {
+// returns job if err is nil, err, and a boolean saying if the task should be restarted (true/false)
+func startTask(c appengine.Context, taskIntf startTopIntf, taskKey *datastore.Key) (JobTask, error, bool) {
 	if task, err := getTask(c, taskKey); err != nil {
-		return JobTask{}, fmt.Errorf("failed to get map task status: %s", err)
-	} else if task.Status == TaskStatusRunning {
-		// we think we're already running, but we got here. that means we failed
-		// unexpectedly.
-		c.Infof("restarted automatically -- running again")
-		return task, nil
-	} else if task, err := updateTask(c, taskKey, TaskStatusRunning, "", nil); err != nil {
-		return JobTask{}, fmt.Errorf("failed to update map task to running: %s", err)
+		return JobTask{}, fmt.Errorf("failed to get task status: %s", err), true
+	} else if job, err := getJob(c, task.Job); err != nil {
+		return JobTask{}, fmt.Errorf("failed to get job: %s", err), true
+	} else if task.Retries > job.RetryCount {
+		// we've failed
+		if _, err := updateTask(c, taskKey, TaskStatusFailed, 0, "maxium retries exceeeded", nil); err != nil {
+			return JobTask{}, fmt.Errorf("Could not update task with failure: %s", err), true
+		}
+
+		return JobTask{}, fmt.Errorf("maximum retries exceeded"), false
 	} else {
+		if task.Status == TaskStatusRunning {
+			// we think we're already running, but we got here. that means we failed
+			// unexpectedly.
+			c.Infof("restarted automatically -- running again")
+		} else if task.Status == TaskStatusFailed {
+			c.Infof("started even though we've already failed. interesting")
+			return JobTask{}, fmt.Errorf("restarted failed task"), false
+		} else if _, err := updateTask(c, taskKey, TaskStatusRunning, 1, "", nil); err != nil {
+			return JobTask{}, fmt.Errorf("failed to update map task to running: %s", err), true
+		}
+
 		taskIntf.Status(task.Job.IntID(), task)
-		return task, nil
+		return task, nil, false
 	}
 }
 
 func endTask(c appengine.Context, taskIntf startTopIntf, jobKey *datastore.Key, taskKey *datastore.Key, resultErr error, result interface{}) error {
 	if resultErr == nil {
-		if task, err := updateTask(c, taskKey, TaskStatusDone, "", result); err != nil {
+		if task, err := updateTask(c, taskKey, TaskStatusDone, 0, "", result); err != nil {
 			return fmt.Errorf("Could not update task: %s", err)
 		} else {
 			taskIntf.Status(jobKey.IntID(), task)
@@ -524,7 +547,7 @@ func endTask(c appengine.Context, taskIntf startTopIntf, jobKey *datastore.Key, 
 		}
 
 		// fatal error
-		if _, err := updateTask(c, taskKey, TaskStatusFailed, resultErr.Error(), nil); err != nil {
+		if _, err := updateTask(c, taskKey, TaskStatusFailed, 0, resultErr.Error(), nil); err != nil {
 			return fmt.Errorf("Could not update task with failure: %s", err)
 		}
 	}

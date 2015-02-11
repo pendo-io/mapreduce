@@ -56,6 +56,7 @@ func reduceTask(c appengine.Context, baseUrl string, mr MapReducePipeline, taskK
 	var writer SingleOutputWriter
 	var task JobTask
 	var err error
+	var retry bool
 
 	start := time.Now()
 
@@ -63,9 +64,13 @@ func reduceTask(c appengine.Context, baseUrl string, mr MapReducePipeline, taskK
 	// the task status callback is invoked
 	mr.SetReduceParameters(r.FormValue("json"))
 
-	if task, err = startTask(c, mr, taskKey); err != nil {
+	if task, err, retry = startTask(c, mr, taskKey); err != nil && retry {
 		c.Criticalf("failed updating task to running: %s", err)
 		http.Error(w, err.Error(), 500) // this will run us again
+		return
+	} else if err != nil {
+		c.Criticalf("(fatal) failed updating task to running: %s", err)
+		http.Error(w, err.Error(), 200) // this will run us again
 		return
 	}
 
