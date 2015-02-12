@@ -359,7 +359,21 @@ func RemoveJob(c appengine.Context, jobId int64) error {
 
 	keys = append(keys, jobKey)
 
-	return datastore.DeleteMulti(c, keys)
+	i := 0
+	for i < len(keys) {
+		last := i + 250
+		if last > len(keys) {
+			last = len(keys)
+		}
+
+		if err := datastore.DeleteMulti(c, keys[i:last]); err != nil {
+			return err
+		}
+
+		i = last
+	}
+
+	return nil
 }
 
 func makeTaskKeys(c appengine.Context, firstId int64, count int) []*datastore.Key {
