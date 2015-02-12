@@ -201,25 +201,20 @@ func (t taskError) Error() string { return "taskError " + t.err }
 // caller needs to check the stage in the final job; if stageChanged is true it will be either nextStage or StageFailed.
 // If StageFailed then at least one of the underlying tasks failed and the reason will appear as a taskError{} in err
 func jobStageComplete(c appengine.Context, jobKey *datastore.Key, taskKeys []*datastore.Key, expectedStage, nextStage JobStage) (stageChanged bool, job JobInfo, finalErr error) {
-	if c, err := datastore.NewQuery(TaskEntity).Filter("Done =", nil).Limit(1).KeysOnly().Count(c); err != nil {
-		finalErr = err
-		return
-	} else if c != 0 {
-		return
-	}
-
 	tasks := make([]JobTask, len(taskKeys))
-	// gatherTasks is eventually consistent. that's okay here, because
-	// we'll eventually get TaskStatusFailed or TaskStatusDone
 	if err := datastore.GetMulti(c, taskKeys, tasks); err != nil {
 		finalErr = err
 		return
 	} else {
 		for i := range tasks {
 			if tasks[i].Status == TaskStatusFailed {
+				c.Infof("failed tasks found")
 				nextStage = StageFailed
 				finalErr = taskError{tasks[i].Info}
 				break
+			} else if tasks[i].Status != TaskStatusDone {
+				c.Infof("task not done status is %s", tasks[i].Status)
+				return
 			}
 		}
 	}
@@ -249,6 +244,8 @@ func jobStageComplete(c appengine.Context, jobKey *datastore.Key, taskKeys []*da
 
 	if finalErr != nil {
 		c.Criticalf("taskComplete failed: %s", finalErr)
+	} else {
+		c.Infof("task is complete")
 	}
 
 	return
@@ -377,8 +374,19 @@ func makeTaskKeys(c appengine.Context, firstId int64, count int) []*datastore.Ke
 func gatherTasks(c appengine.Context, job JobInfo) ([]JobTask, error) {
 	taskKeys := makeTaskKeys(c, job.FirstTaskId, job.TaskCount)
 	tasks := make([]JobTask, len(taskKeys))
-	if err := datastore.GetMulti(c, taskKeys, tasks); err != nil {
-		return nil, err
+
+	i := 0
+	for i < len(taskKeys) {
+		last := i + 500
+		if last > len(taskKeys) {
+			last = len(taskKeys)
+		}
+
+		if err := datastore.GetMulti(c, taskKeys[i:last], tasks[i:last]); err != nil {
+			return nil, err
+		}
+
+		i = last
 	}
 
 	return tasks, nil
@@ -412,6 +420,9 @@ func retryTask(c appengine.Context, taskIntf TaskInterface, jobKey *datastore.Ke
 	} else if err := datastore.Get(c, jobKey, &job); err != nil {
 		return err
 	}
+
+	// putting this here is a total hack but we don't want to retry crazy-fast
+	time.Sleep(time.Duration(job.RetryCount) * 5 * time.Second)
 
 	task.Status = TaskStatusPending
 	if _, err := datastore.Put(c, taskKey, &task); err != nil {

@@ -40,6 +40,8 @@ func reduceMonitorTask(c appengine.Context, pipeline MapReducePipeline, jobKey *
 		if err := pipeline.PostStatus(c, fmt.Sprintf("%s/reduce-monitor?jobKey=%s", job.UrlPrefix, jobKey.Encode())); err != nil {
 			c.Criticalf("failed to start reduce monitor task: %s", err)
 		}
+
+		return
 	}
 
 	c.Infof("reduce complete status: %s", job.Stage)

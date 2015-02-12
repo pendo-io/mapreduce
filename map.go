@@ -40,6 +40,8 @@ func mapMonitorTask(c appengine.Context, pipeline MapReducePipeline, jobKey *dat
 		if err := pipeline.PostStatus(c, fmt.Sprintf("%s/map-monitor?jobKey=%s", job.UrlPrefix, jobKey.Encode())); err != nil {
 			c.Criticalf("failed to start map monitor task: %s", err)
 		}
+
+		return
 	}
 
 	c.Infof("map stage completed -- stage is now %s", job.Stage)
@@ -57,7 +59,7 @@ func mapMonitorTask(c appengine.Context, pipeline MapReducePipeline, jobKey *dat
 	for i := range mapTasks {
 		var shardNames map[string]int
 		if err = json.Unmarshal([]byte(mapTasks[i].Result), &shardNames); err != nil {
-			c.Errorf(`unmarshal error for result from mapper %+v`, mapTasks[i].Result)
+			c.Errorf(`unmarshal error for result from map %d result '%+v'`, job.FirstTaskId+int64(i), mapTasks[i].Result)
 			jobFailed(c, pipeline, jobKey, fmt.Errorf("cannot unmarshal map shard names: %s", err.Error()))
 			return
 		} else {
