@@ -131,11 +131,17 @@ func createTasks(c appengine.Context, jobKey *datastore.Key, taskKeys []*datasto
 		}
 	}
 
-	if err := backoff.Retry(func() error {
-		_, err := datastore.PutMulti(c, taskKeys, tasks)
-		return err
-	}, mrBackOff()); err != nil {
-		return err
+	for i := 0; i < len(tasks); i += 500 {
+		last := i + 500
+		if last > len(tasks) {
+			last = len(tasks)
+		}
+		if err := backoff.Retry(func() error {
+			_, err := datastore.PutMulti(c, taskKeys[i:last], tasks[i:last])
+			return err
+		}, mrBackOff()); err != nil {
+			return err
+		}
 	}
 
 	return runInTransaction(c,
