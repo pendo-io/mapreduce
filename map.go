@@ -49,6 +49,7 @@ func mapMonitorTask(c appengine.Context, pipeline MapReducePipeline, jobKey *dat
 	// erm... we just did this in jobStageComplete. dumb to do it again
 	mapTasks, err := gatherTasks(c, job)
 	if err != nil {
+		c.Errorf("failed loading tasks: %s", mapTasks)
 		jobFailed(c, pipeline, jobKey, fmt.Errorf("error loading tasks after map complete: %s", err.Error()))
 		return
 	}
@@ -115,7 +116,8 @@ func mapMonitorTask(c appengine.Context, pipeline MapReducePipeline, jobKey *dat
 	}
 
 	if err := pipeline.PostStatus(c, fmt.Sprintf("%s/reduce-monitor?jobKey=%s", job.UrlPrefix, jobKey.Encode())); err != nil {
-		c.Criticalf("failed to start reduce monitor task: %s", err)
+		jobFailed(c, pipeline, jobKey, fmt.Errorf("failed to start reduce monitor: %s", err.Error()))
+		return
 	}
 
 	c.Infof("mapping complete after %s of monitoring ", time.Now().Sub(start))

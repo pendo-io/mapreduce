@@ -131,14 +131,27 @@ func createTasks(c appengine.Context, jobKey *datastore.Key, taskKeys []*datasto
 		}
 	}
 
-	for i := 0; i < len(tasks); i += 500 {
-		last := i + 500
-		if last > len(tasks) {
-			last = len(tasks)
-		}
+	putSize := 64
+
+	i := 0
+	for i < len(tasks) {
 		if err := backoff.Retry(func() error {
-			_, err := datastore.PutMulti(c, taskKeys[i:last], tasks[i:last])
-			return err
+			last := i + putSize
+			if last > len(tasks) {
+				last = len(tasks)
+			}
+
+			if _, err := datastore.PutMulti(c, taskKeys[i:last], tasks[i:last]); err != nil {
+				if putSize > 5 {
+					putSize /= 2
+				}
+
+				return err
+			}
+
+			i = last
+
+			return nil
 		}, mrBackOff()); err != nil {
 			return err
 		}
@@ -219,7 +232,6 @@ func jobStageComplete(c appengine.Context, jobKey *datastore.Key, taskKeys []*da
 				finalErr = taskError{tasks[i].Info}
 				break
 			} else if tasks[i].Status != TaskStatusDone {
-				c.Infof("task not done status is %s", tasks[i].Status)
 				return
 			}
 		}
@@ -397,7 +409,7 @@ func gatherTasks(c appengine.Context, job JobInfo) ([]JobTask, error) {
 
 	i := 0
 	for i < len(taskKeys) {
-		last := i + 500
+		last := i + 100
 		if last > len(taskKeys) {
 			last = len(taskKeys)
 		}
