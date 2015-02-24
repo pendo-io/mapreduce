@@ -220,19 +220,34 @@ func (t taskError) Error() string { return "taskError " + t.err }
 // caller needs to check the stage in the final job; if stageChanged is true it will be either nextStage or StageFailed.
 // If StageFailed then at least one of the underlying tasks failed and the reason will appear as a taskError{} in err
 func jobStageComplete(c appengine.Context, jobKey *datastore.Key, taskKeys []*datastore.Key, expectedStage, nextStage JobStage) (stageChanged bool, job JobInfo, finalErr error) {
-	tasks := make([]JobTask, len(taskKeys))
-	if err := datastore.GetMulti(c, taskKeys, tasks); err != nil {
-		finalErr = err
-		return
-	} else {
-		for i := range tasks {
-			if tasks[i].Status == TaskStatusFailed {
-				c.Infof("failed tasks found")
-				nextStage = StageFailed
-				finalErr = taskError{tasks[i].Info}
-				break
-			} else if tasks[i].Status != TaskStatusDone {
-				return
+	last := len(taskKeys)
+	tasks := make([]JobTask, 100)
+	for last > 0 {
+		first := last - 100
+		if first < 0 {
+			first = 0
+		}
+
+		taskCount := last - first
+
+		if err := datastore.GetMulti(c, taskKeys[first:last], tasks[0:taskCount]); err != nil {
+			finalErr = err
+			return
+		} else {
+			for i := 0; i < taskCount; i++ {
+				if tasks[i].Status == TaskStatusFailed {
+					c.Infof("failed tasks found")
+					nextStage = StageFailed
+					last = -1
+					finalErr = taskError{tasks[i].Info}
+					break
+				} else if tasks[i].Status != TaskStatusDone {
+					return
+				}
+			}
+
+			if last >= 0 {
+				last = first
 			}
 		}
 	}
