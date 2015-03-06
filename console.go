@@ -57,6 +57,7 @@ table,td,th {
 <h1>MapReduce Task</h1>
 
 <p>Job Id {{.Id}}</p>
+<p>{{.Pending}} Pending / {{.Running}} Running / {{.Done}} Done / {{.Failed }} Failed</p>
 
 <table>
 <tr>
@@ -101,13 +102,31 @@ func ConsoleHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		running := 0
+		pending := 0
+		done := 0
+		failed := 0
+		for i := range tasks {
+			switch tasks[i].Status {
+			case TaskStatusPending:
+				pending++
+			case TaskStatusRunning:
+				running++
+			case TaskStatusDone:
+				done++
+			case TaskStatusFailed:
+				failed++
+			}
+		}
+
 		t := template.New("main")
 		t, _ = t.Parse(jobPage)
 		err = t.Execute(w, struct {
-			Id       int64
-			Tasks    []JobTask
-			TaskKeys []*datastore.Key
-		}{id, tasks, taskKeys})
+			Id                             int64
+			Tasks                          []JobTask
+			TaskKeys                       []*datastore.Key
+			Pending, Running, Done, Failed int
+		}{id, tasks, taskKeys, pending, running, done, failed})
 		if err != nil {
 			http.Error(w, "Internal error: "+err.Error(), http.StatusInternalServerError)
 			return
