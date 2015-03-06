@@ -460,27 +460,33 @@ func (q AppengineTaskQueue) PostStatus(c appengine.Context, taskUrl string) erro
 }
 
 func retryTask(c appengine.Context, taskIntf TaskInterface, jobKey *datastore.Key, taskKey *datastore.Key) error {
-	var task JobTask
-	var job JobInfo
-	if err := datastore.Get(c, taskKey, &task); err != nil {
+	if err := backoff.Retry(func() error {
+		var task JobTask
+		var job JobInfo
+		if err := datastore.Get(c, taskKey, &task); err != nil {
+			return err
+		} else if err := datastore.Get(c, jobKey, &job); err != nil {
+			return err
+		}
+
+		// putting this here is a total hack but we don't want to retry crazy-fast
+		time.Sleep(time.Duration(job.RetryCount) * 5 * time.Second)
+
+		task.Status = TaskStatusPending
+		if _, err := datastore.Put(c, taskKey, &task); err != nil {
+			return err
+		} else if err := taskIntf.PostTask(c, task.Url, job.JsonParameters); err != nil {
+			return err
+		}
+
+		c.Infof("retrying task %d/%d", task.Retries, job.RetryCount)
+		return nil
+	}, mrBackOff()); err != nil {
+		c.Infof("retryTask() failed after backoff attempts")
 		return err
-	} else if err := datastore.Get(c, jobKey, &job); err != nil {
-		return err
+	} else {
+		return nil
 	}
-
-	// putting this here is a total hack but we don't want to retry crazy-fast
-	time.Sleep(time.Duration(job.RetryCount) * 5 * time.Second)
-
-	task.Status = TaskStatusPending
-	if _, err := datastore.Put(c, taskKey, &task); err != nil {
-		return err
-	} else if err := taskIntf.PostTask(c, task.Url, job.JsonParameters); err != nil {
-		return err
-	}
-
-	c.Infof("retrying task %d/%d", task.Retries, job.RetryCount)
-
-	return nil
 }
 
 func jobFailed(c appengine.Context, taskIntf TaskInterface, jobKey *datastore.Key, err error) {
