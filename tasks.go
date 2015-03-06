@@ -485,10 +485,7 @@ func retryTask(c appengine.Context, taskIntf TaskInterface, jobKey *datastore.Ke
 
 func jobFailed(c appengine.Context, taskIntf TaskInterface, jobKey *datastore.Key, err error) {
 	c.Errorf("jobFailed: %s", err)
-	prevJob, _ := markJobFailed(c, jobKey)
-	if prevJob.Stage == StageFailed {
-		return
-	}
+	prevJob, _ := markJobFailed(c, jobKey) // this might mark it failed again. whatever.
 
 	if prevJob.OnCompleteUrl != "" {
 		taskIntf.PostStatus(c, fmt.Sprintf("%s?status=error;error=%s;id=%d", prevJob.OnCompleteUrl,
