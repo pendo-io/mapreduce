@@ -1,8 +1,9 @@
 package mapreduce
 
 import (
-	"appengine"
-	"appengine/datastore"
+	"github.com/pendo-io/appwrap"
+	"google.golang.org/appengine"
+	"google.golang.org/appengine/datastore"
 	"html/template"
 	"net/http"
 	"strconv"
@@ -89,6 +90,7 @@ table,td,th {
 
 func ConsoleHandler(w http.ResponseWriter, r *http.Request) {
 	c := appengine.NewContext(r)
+	ds := appwrap.NewAppengineDatastore(c)
 
 	if strings.HasSuffix(r.URL.Path, "/job") {
 		id, _ := strconv.ParseInt(r.FormValue("id"), 10, 64)
@@ -134,7 +136,7 @@ func ConsoleHandler(w http.ResponseWriter, r *http.Request) {
 	} else if strings.HasSuffix(r.URL.Path, "/delete") {
 		id, _ := strconv.ParseInt(r.FormValue("id"), 10, 64)
 
-		if err := RemoveJob(c, id); err != nil {
+		if err := RemoveJob(ds, id); err != nil {
 			http.Error(w, "Internal error: "+err.Error(), http.StatusInternalServerError)
 			return
 		}

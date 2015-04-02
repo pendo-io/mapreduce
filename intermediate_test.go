@@ -15,11 +15,13 @@
 package mapreduce
 
 import (
+	"github.com/pendo-io/appwrap"
 	ck "gopkg.in/check.v1"
 )
 
 func (mrt *MapreduceTests) TestIntermediateMerge(c *ck.C) {
 	memStorage := &memoryIntermediateStorage{}
+	ctx := appwrap.StubContext()
 
 	handler := struct {
 		Int64KeyHandler
@@ -28,24 +30,24 @@ func (mrt *MapreduceTests) TestIntermediateMerge(c *ck.C) {
 
 	merger := newMerger(handler)
 	for i := 0; i < 5; i++ {
-		w, _ := memStorage.CreateIntermediate(mrt.Context, handler)
+		w, _ := memStorage.CreateIntermediate(ctx, handler)
 		for j := 0; j < 1000; j++ {
 			w.WriteMappedData(MappedData{Key: int64(j*5 + i), Value: int64(i)})
 		}
 
-		w.Close(mrt.Context)
+		w.Close(ctx)
 
-		iterator, _ := memStorage.Iterator(mrt.Context, w.ToName(), handler)
+		iterator, _ := memStorage.Iterator(ctx, w.ToName(), handler)
 		merger.addSource(iterator)
 	}
 
-	w, _ := memStorage.CreateIntermediate(mrt.Context, handler)
+	w, _ := memStorage.CreateIntermediate(ctx, handler)
 	err := mergeIntermediate(w, handler, merger)
 	c.Assert(err, ck.Equals, nil)
-	err = w.Close(mrt.Context)
+	err = w.Close(ctx)
 	c.Assert(err, ck.Equals, nil)
 
-	iter, err := memStorage.Iterator(mrt.Context, w.ToName(), handler)
+	iter, err := memStorage.Iterator(ctx, w.ToName(), handler)
 	c.Assert(err, ck.IsNil)
 
 	next := int64(0)

@@ -15,11 +15,11 @@
 package mapreduce
 
 import (
-	"appengine"
 	"bytes"
 	"compress/gzip"
 	"encoding/binary"
 	"fmt"
+	"golang.org/x/net/context"
 	"io"
 	"sort"
 )
@@ -29,7 +29,7 @@ type spillStruct struct {
 	linesPerShard []int
 }
 
-func writeSpill(c appengine.Context, handler KeyValueHandler, dataSets []mappedDataList) (spillStruct, error) {
+func writeSpill(c context.Context, handler KeyValueHandler, dataSets []mappedDataList) (spillStruct, error) {
 	spill := spillStruct{
 		linesPerShard: make([]int, len(dataSets)),
 	}
@@ -155,7 +155,7 @@ type spillMerger struct {
 	handler    KeyValueHandler
 }
 
-func spillSetMerger(c appengine.Context, spills []spillStruct, handler KeyValueHandler) (*spillMerger, error) {
+func spillSetMerger(c context.Context, spills []spillStruct, handler KeyValueHandler) (*spillMerger, error) {
 	if len(spills) == 0 {
 		return nil, nil
 	}
@@ -196,7 +196,7 @@ func (merger *spillMerger) nextMerger() (int, *mappedDataMerger, error) {
 	return merger.nextShard - 1, mm, nil
 }
 
-func mergeSpills(c appengine.Context, intStorage IntermediateStorage, handler KeyValueHandler, spills []spillStruct) ([]string, error) {
+func mergeSpills(c context.Context, intStorage IntermediateStorage, handler KeyValueHandler, spills []spillStruct) ([]string, error) {
 	if len(spills) == 0 {
 		return []string{}, nil
 	}
@@ -216,7 +216,7 @@ func mergeSpills(c appengine.Context, intStorage IntermediateStorage, handler Ke
 	closerResults := make(chan result, numShards)
 
 	for shardCount := 0; shardCount < numShards; shardCount++ {
-		c.Infof("merging shard %d/%d", shardCount, numShards)
+		logInfo(c, "merging shard %d/%d", shardCount, numShards)
 		if shard, merger, err := spillMerger.nextMerger(); err != nil {
 			return nil, fmt.Errorf("failed to create merger for shard %d: %s", shardCount, err)
 		} else if shard != shardCount {

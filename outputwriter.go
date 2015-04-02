@@ -15,16 +15,16 @@
 package mapreduce
 
 import (
-	"appengine"
 	"encoding/json"
 	"fmt"
+	"golang.org/x/net/context"
 	"io"
 	"os"
 )
 
 type OutputWriter interface {
-	WriterNames(c appengine.Context) ([]string, error)
-	WriterFromName(c appengine.Context, name string) (SingleOutputWriter, error)
+	WriterNames(c context.Context) ([]string, error)
+	WriterFromName(c context.Context, name string) (SingleOutputWriter, error)
 }
 
 // local file output; used for testing
@@ -32,17 +32,17 @@ type fileLineOutputWriter struct {
 	Paths []string
 }
 
-func (m fileLineOutputWriter) WriterNames(c appengine.Context) ([]string, error) {
+func (m fileLineOutputWriter) WriterNames(c context.Context) ([]string, error) {
 	return m.Paths, nil
 }
 
-func (m fileLineOutputWriter) WriterFromName(c appengine.Context, name string) (SingleOutputWriter, error) {
+func (m fileLineOutputWriter) WriterFromName(c context.Context, name string) (SingleOutputWriter, error) {
 	return newSingleFileLineOutputWriter(name)
 }
 
 type SingleOutputWriter interface {
 	Write(data interface{}) error
-	Close(c appengine.Context) error
+	Close(c context.Context) error
 	ToName() string
 }
 
@@ -91,7 +91,7 @@ type singleFileLineOutputWriter struct {
 	path string
 }
 
-func (o LineOutputWriter) Close(c appengine.Context) error {
+func (o LineOutputWriter) Close(c context.Context) error {
 	return o.w.Close()
 }
 
@@ -114,7 +114,7 @@ type NilOutputWriter struct {
 	Count int
 }
 
-func (n NilOutputWriter) WriterNames(c appengine.Context) ([]string, error) {
+func (n NilOutputWriter) WriterNames(c context.Context) ([]string, error) {
 	result := make([]string, n.Count)
 	for i := range result {
 		result[i] = "(niloutputwriter)"
@@ -123,7 +123,7 @@ func (n NilOutputWriter) WriterNames(c appengine.Context) ([]string, error) {
 	return result, nil
 }
 
-func (n NilOutputWriter) WriterFromName(c appengine.Context, name string) (SingleOutputWriter, error) {
+func (n NilOutputWriter) WriterFromName(c context.Context, name string) (SingleOutputWriter, error) {
 	return nilSingleOutputWriter{}, nil
 }
 
@@ -133,7 +133,7 @@ func (n nilSingleOutputWriter) Write(data interface{}) error {
 	return nil
 }
 
-func (n nilSingleOutputWriter) Close(c appengine.Context) error {
+func (n nilSingleOutputWriter) Close(c context.Context) error {
 	return nil
 }
 

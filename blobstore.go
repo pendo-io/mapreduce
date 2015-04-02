@@ -17,8 +17,11 @@
 package mapreduce
 
 import (
-	"appengine"
+	aeclassic "appengine"
 	"appengine/blobstore"
+	"golang.org/x/net/context"
+	"google.golang.org/appengine"
+	aeinternal "google.golang.org/appengine/internal"
 	"io"
 	"time"
 )
@@ -42,18 +45,18 @@ type closeWrapper struct {
 
 func (c *closeWrapper) Close() error { return nil }
 
-func (br BlobstoreReader) ReaderFromName(c appengine.Context, name string) (SingleInputReader, error) {
-	reader := blobstore.NewReader(c, appengine.BlobKey(name))
+func (br BlobstoreReader) ReaderFromName(c context.Context, name string) (SingleInputReader, error) {
+	reader := blobstore.NewReader(aeinternal.ClassicContextFromContext(c), aeclassic.BlobKey(name))
 	return NewSingleLineInputReader(&closeWrapper{reader}), nil
 }
 
 type BlobFileLineOutputWriter struct {
 	LineOutputWriter
-	key        appengine.BlobKey
+	key        aeclassic.BlobKey
 	blobWriter *blobstore.Writer
 }
 
-func (b *BlobFileLineOutputWriter) Close(c appengine.Context) error {
+func (b *BlobFileLineOutputWriter) Close(c context.Context) error {
 	err := b.LineOutputWriter.Close(c)
 	b.key, _ = b.blobWriter.Key()
 	return err
@@ -71,7 +74,7 @@ type BlobstoreWriter struct {
 	Count int
 }
 
-func (b BlobstoreWriter) WriterNames(c appengine.Context) ([]string, error) {
+func (b BlobstoreWriter) WriterNames(c context.Context) ([]string, error) {
 	result := make([]string, b.Count)
 	for i := range result {
 		result[i] = "(unnamedblob)"
@@ -80,12 +83,12 @@ func (b BlobstoreWriter) WriterNames(c appengine.Context) ([]string, error) {
 	return result, nil
 }
 
-func (m BlobstoreWriter) WriterFromName(c appengine.Context, name string) (SingleOutputWriter, error) {
+func (m BlobstoreWriter) WriterFromName(c context.Context, name string) (SingleOutputWriter, error) {
 	if name != "(unnamedblob)" {
 		panic("bad name for blobstore writer")
 	}
 
-	w, err := blobstore.Create(appengine.Timeout(c, 15*time.Second), "text/plain")
+	w, err := blobstore.Create(aeclassic.Timeout(aeinternal.ClassicContextFromContext(c), 15*time.Second), "text/plain")
 	if err != nil {
 		return nil, err
 	}
@@ -99,8 +102,8 @@ func (m BlobstoreWriter) WriterFromName(c appengine.Context, name string) (Singl
 type BlobIntermediateStorage struct {
 }
 
-func (fis *BlobIntermediateStorage) CreateIntermediate(c appengine.Context, handler KeyValueHandler) (SingleIntermediateStorageWriter, error) {
-	if w, err := blobstore.Create(c, "text/plain"); err != nil {
+func (fis *BlobIntermediateStorage) CreateIntermediate(c context.Context, handler KeyValueHandler) (SingleIntermediateStorageWriter, error) {
+	if w, err := blobstore.Create(aeinternal.ClassicContextFromContext(c), "text/plain"); err != nil {
 		return nil, err
 	} else {
 		return &BlobFileLineOutputWriter{
@@ -110,12 +113,12 @@ func (fis *BlobIntermediateStorage) CreateIntermediate(c appengine.Context, hand
 	}
 }
 
-func (fis BlobIntermediateStorage) Iterator(c appengine.Context, name string, handler KeyValueHandler) (IntermediateStorageIterator, error) {
-	f := blobstore.NewReader(c, appengine.BlobKey(name))
+func (fis BlobIntermediateStorage) Iterator(c context.Context, name string, handler KeyValueHandler) (IntermediateStorageIterator, error) {
+	f := blobstore.NewReader(aeinternal.ClassicContextFromContext(c), aeclassic.BlobKey(name))
 
 	return NewReaderIterator(&closeWrapper{f}, handler), nil
 }
 
-func (fis BlobIntermediateStorage) RemoveIntermediate(c appengine.Context, name string) error {
-	return blobstore.Delete(c, appengine.BlobKey(name))
+func (fis BlobIntermediateStorage) RemoveIntermediate(c context.Context, name string) error {
+	return blobstore.Delete(aeinternal.ClassicContextFromContext(c), aeclassic.BlobKey(name))
 }

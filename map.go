@@ -15,12 +15,13 @@
 package mapreduce
 
 import (
-	"appengine"
-	"appengine/datastore"
 	"bytes"
 	"compress/zlib"
 	"encoding/json"
 	"fmt"
+	"github.com/pendo-io/appwrap"
+	"golang.org/x/net/context"
+	"google.golang.org/appengine/datastore"
 	"net/http"
 	"net/url"
 	"runtime"
@@ -28,29 +29,29 @@ import (
 	"time"
 )
 
-func mapMonitorTask(c appengine.Context, pipeline MapReducePipeline, jobKey *datastore.Key, r *http.Request, timeout time.Duration) {
+func mapMonitorTask(c context.Context, ds appwrap.Datastore, pipeline MapReducePipeline, jobKey *datastore.Key, r *http.Request, timeout time.Duration) {
 	start := time.Now()
 
-	job, err := waitForStageCompletion(c, pipeline, jobKey, StageMapping, StageReducing, timeout)
+	job, err := waitForStageCompletion(c, ds, pipeline, jobKey, StageMapping, StageReducing, timeout)
 	if err != nil {
-		c.Criticalf("waitForStageCompletion() failed: %s", err)
+		logCritical(c, "waitForStageCompletion() failed: %s", err)
 		return
 	} else if job.Stage == StageMapping {
-		c.Infof("wait timed out -- restarting monitor")
+		logInfo(c, "wait timed out -- restarting monitor")
 		if err := pipeline.PostStatus(c, fmt.Sprintf("%s/map-monitor?jobKey=%s", job.UrlPrefix, jobKey.Encode())); err != nil {
-			c.Criticalf("failed to start map monitor task: %s", err)
+			logCritical(c, "failed to start map monitor task: %s", err)
 		}
 
 		return
 	}
 
-	c.Infof("map stage completed -- stage is now %s", job.Stage)
+	logInfo(c, "map stage completed -- stage is now %s", job.Stage)
 
 	// erm... we just did this in jobStageComplete. dumb to do it again
-	mapTasks, err := gatherTasks(c, job)
+	mapTasks, err := gatherTasks(ds, job)
 	if err != nil {
-		c.Errorf("failed loading tasks: %s", mapTasks)
-		jobFailed(c, pipeline, jobKey, fmt.Errorf("error loading tasks after map complete: %s", err.Error()))
+		logError(c, "failed loading tasks: %s", mapTasks)
+		jobFailed(c, ds, pipeline, jobKey, fmt.Errorf("error loading tasks after map complete: %s", err.Error()))
 		return
 	}
 
@@ -60,8 +61,8 @@ func mapMonitorTask(c appengine.Context, pipeline MapReducePipeline, jobKey *dat
 	for i := range mapTasks {
 		var shardNames map[string]int
 		if err = json.Unmarshal([]byte(mapTasks[i].Result), &shardNames); err != nil {
-			c.Errorf(`unmarshal error for result from map %d result '%+v'`, job.FirstTaskId+int64(i), mapTasks[i].Result)
-			jobFailed(c, pipeline, jobKey, fmt.Errorf("cannot unmarshal map shard names: %s", err.Error()))
+			logError(c, `unmarshal error for result from map %d result '%+v'`, job.FirstTaskId+int64(i), mapTasks[i].Result)
+			jobFailed(c, ds, pipeline, jobKey, fmt.Errorf("cannot unmarshal map shard names: %s", err.Error()))
 			return
 		} else {
 			for name, shard := range shardNames {
@@ -72,10 +73,10 @@ func mapMonitorTask(c appengine.Context, pipeline MapReducePipeline, jobKey *dat
 
 	firstId, _, err := datastore.AllocateIDs(c, TaskEntity, nil, len(job.WriterNames))
 	if err != nil {
-		jobFailed(c, pipeline, jobKey, fmt.Errorf("failed to allocate ids for reduce tasks: %s", err.Error()))
+		jobFailed(c, ds, pipeline, jobKey, fmt.Errorf("failed to allocate ids for reduce tasks: %s", err.Error()))
 		return
 	}
-	taskKeys := makeTaskKeys(c, firstId, len(job.WriterNames))
+	taskKeys := makeTaskKeys(ds, firstId, len(job.WriterNames))
 	tasks := make([]JobTask, 0, len(job.WriterNames))
 
 	for shard := range job.WriterNames {
@@ -103,27 +104,27 @@ func mapMonitorTask(c appengine.Context, pipeline MapReducePipeline, jobKey *dat
 
 	taskKeys = taskKeys[0:len(tasks)]
 
-	if err := createTasks(c, jobKey, taskKeys, tasks, StageReducing); err != nil {
-		jobFailed(c, pipeline, jobKey, fmt.Errorf("failed to create reduce tasks: %s", err.Error()))
+	if err := createTasks(ds, jobKey, taskKeys, tasks, StageReducing); err != nil {
+		jobFailed(c, ds, pipeline, jobKey, fmt.Errorf("failed to create reduce tasks: %s", err.Error()))
 		return
 	}
 
 	for i := range tasks {
 		if err := pipeline.PostTask(c, tasks[i].Url, job.JsonParameters); err != nil {
-			jobFailed(c, pipeline, jobKey, fmt.Errorf("failed to post reduce task: %s", err.Error()))
+			jobFailed(c, ds, pipeline, jobKey, fmt.Errorf("failed to post reduce task: %s", err.Error()))
 			return
 		}
 	}
 
 	if err := pipeline.PostStatus(c, fmt.Sprintf("%s/reduce-monitor?jobKey=%s", job.UrlPrefix, jobKey.Encode())); err != nil {
-		jobFailed(c, pipeline, jobKey, fmt.Errorf("failed to start reduce monitor: %s", err.Error()))
+		jobFailed(c, ds, pipeline, jobKey, fmt.Errorf("failed to start reduce monitor: %s", err.Error()))
 		return
 	}
 
-	c.Infof("mapping complete after %s of monitoring ", time.Now().Sub(start))
+	logInfo(c, "mapping complete after %s of monitoring ", time.Now().Sub(start))
 }
 
-func mapTask(c appengine.Context, baseUrl string, mr MapReducePipeline, taskKey *datastore.Key, w http.ResponseWriter, r *http.Request) {
+func mapTask(c context.Context, ds appwrap.Datastore, baseUrl string, mr MapReducePipeline, taskKey *datastore.Key, w http.ResponseWriter, r *http.Request) {
 	var finalErr error
 	var shardNames map[string]int
 	var task JobTask
@@ -132,9 +133,9 @@ func mapTask(c appengine.Context, baseUrl string, mr MapReducePipeline, taskKey 
 		if r := recover(); r != nil {
 			stack := make([]byte, 16384)
 			bytes := runtime.Stack(stack, false)
-			c.Criticalf("panic inside of map task %s: %s\n%s\n", taskKey.Encode(), r, stack[0:bytes])
+			logCritical(c, "panic inside of map task %s: %s\n%s\n", taskKey.Encode(), r, stack[0:bytes])
 
-			if err := retryTask(c, mr, task.Job, taskKey); err != nil {
+			if err := retryTask(c, ds, mr, task.Job, taskKey); err != nil {
 				panic(fmt.Errorf("failed to retry task after panic: %s", err))
 			}
 		}
@@ -148,12 +149,12 @@ func mapTask(c appengine.Context, baseUrl string, mr MapReducePipeline, taskKey 
 	mr.SetMapParameters(jsonParameters)
 	mr.SetShardParameters(jsonParameters)
 
-	if t, err, retry := startTask(c, mr, taskKey); err != nil && retry {
-		c.Criticalf("failed updating task to running: %s", err)
+	if t, err, retry := startTask(c, ds, mr, taskKey); err != nil && retry {
+		logCritical(c, "failed updating task to running: %s", err)
 		http.Error(w, err.Error(), 500) // this will run us again
 		return
 	} else if err != nil {
-		c.Criticalf("(fatal) failed updating task to running: %s", err)
+		logCritical(c, "(fatal) failed updating task to running: %s", err)
 		http.Error(w, err.Error(), 200) // this will run us again
 		return
 	} else {
@@ -170,19 +171,19 @@ func mapTask(c appengine.Context, baseUrl string, mr MapReducePipeline, taskKey 
 		finalErr = fmt.Errorf("error making reader: %s", err)
 	} else {
 		shardNames, finalErr = mapperFunc(c, mr, reader, int(shardCount),
-			makeStatusUpdateFunc(c, mr, fmt.Sprintf("%s/mapstatus", baseUrl), taskKey.Encode()))
+			makeStatusUpdateFunc(c, ds, mr, fmt.Sprintf("%s/mapstatus", baseUrl), taskKey.Encode()))
 	}
 
-	if err := endTask(c, mr, task.Job, taskKey, finalErr, shardNames); err != nil {
-		c.Criticalf("Could not finish task: %s", err)
+	if err := endTask(c, ds, mr, task.Job, taskKey, finalErr, shardNames); err != nil {
+		logCritical(c, "Could not finish task: %s", err)
 		http.Error(w, err.Error(), 500)
 		return
 	}
 
-	c.Infof("mapper done after %s", time.Now().Sub(start))
+	logInfo(c, "mapper done after %s", time.Now().Sub(start))
 }
 
-func mapperFunc(c appengine.Context, mr MapReducePipeline, reader SingleInputReader, shardCount int,
+func mapperFunc(c context.Context, mr MapReducePipeline, reader SingleInputReader, shardCount int,
 	statusFunc StatusUpdateFunc) (map[string]int, error) {
 
 	dataSets := make([]mappedDataList, shardCount)
@@ -224,7 +225,7 @@ func mapperFunc(c appengine.Context, mr MapReducePipeline, reader SingleInputRea
 				spills = append(spills, spill)
 			}
 
-			c.Infof("wrote spill of %d items", count)
+			logInfo(c, "wrote spill of %d items", count)
 
 			size = 0
 			count = 0
@@ -271,7 +272,7 @@ func mapperFunc(c appengine.Context, mr MapReducePipeline, reader SingleInputRea
 	finalNames := make(map[string]int)
 	for try := 0; try < 5; try++ {
 		if names, err := mergeSpills(c, mr, mr, spills); err != nil {
-			c.Infof("spill merge failed try %d: %s", try, err)
+			logInfo(c, "spill merge failed try %d: %s", try, err)
 		} else {
 			for shard, name := range names {
 				finalNames[name] = shard
@@ -284,7 +285,7 @@ func mapperFunc(c appengine.Context, mr MapReducePipeline, reader SingleInputRea
 		return nil, tryAgainError{err}
 	}
 
-	c.Infof("finalNames: %#v", finalNames)
+	logInfo(c, "finalNames: %#v", finalNames)
 
 	return finalNames, nil
 }

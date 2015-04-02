@@ -51,19 +51,19 @@ func (mrt *MapreduceTests) TestSpill(c *ck.C) {
 			dataSets[shard].data = append(dataSets[shard].data, MappedData{Key: int64(i), Value: fmt.Sprintf("%s", i)})
 		}
 
-		spill, err := writeSpill(mrt.Context, handler, dataSets)
+		spill, err := writeSpill(nil, handler, dataSets)
 		c.Assert(err, ck.IsNil)
 		c.Assert(spill.linesPerShard, ck.DeepEquals, []int{400, 400, 400, 400, 400})
 
 		spills[pass] = spill
 	}
 
-	names, err := mergeSpills(mrt.Context, memStorage, handler, spills)
+	names, err := mergeSpills(nil, memStorage, handler, spills)
 	c.Assert(err, ck.IsNil)
 	c.Assert(len(names), ck.Equals, 5)
 
 	for shardCount := 0; shardCount < 5; shardCount++ {
-		iter, err := memStorage.Iterator(mrt.Context, names[shardCount], handler)
+		iter, err := memStorage.Iterator(nil, names[shardCount], handler)
 		c.Assert(err, ck.IsNil)
 
 		for i := 0; i < 2000; i++ {

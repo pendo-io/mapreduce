@@ -15,10 +15,10 @@
 package mapreduce
 
 import (
-	"appengine"
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"golang.org/x/net/context"
 	"io"
 	"os"
 )
@@ -31,7 +31,7 @@ type KeyValueHandler interface {
 // this overlaps a great deal with SingleOutputWriter; they often share an implementation
 type SingleIntermediateStorageWriter interface {
 	WriteMappedData(data MappedData) error
-	Close(c appengine.Context) error
+	Close(c context.Context) error
 	ToName() string
 }
 
@@ -45,9 +45,9 @@ type IntermediateStorageIterator interface {
 // IntermediateStorage defines how intermediare results are saved and read. If keys need to be serialized
 // KeyValueHandler.Load and KeyValueHandler.Save must be used.
 type IntermediateStorage interface {
-	CreateIntermediate(c appengine.Context, handler KeyValueHandler) (SingleIntermediateStorageWriter, error)
-	Iterator(c appengine.Context, name string, handler KeyValueHandler) (IntermediateStorageIterator, error)
-	RemoveIntermediate(c appengine.Context, name string) error
+	CreateIntermediate(c context.Context, handler KeyValueHandler) (SingleIntermediateStorageWriter, error)
+	Iterator(c context.Context, name string, handler KeyValueHandler) (IntermediateStorageIterator, error)
+	RemoveIntermediate(c context.Context, name string) error
 }
 
 type arrayIterator struct {
@@ -79,7 +79,7 @@ func (m *memoryIntermediateStorage) add(name string, data MappedData) {
 	m.items[name] = append(m.items[name], data)
 }
 
-func (m *memoryIntermediateStorage) CreateIntermediate(c appengine.Context, handler KeyValueHandler) (SingleIntermediateStorageWriter, error) {
+func (m *memoryIntermediateStorage) CreateIntermediate(c context.Context, handler KeyValueHandler) (SingleIntermediateStorageWriter, error) {
 	if m.items == nil {
 		m.items = make(map[string][]MappedData)
 	}
@@ -89,14 +89,14 @@ func (m *memoryIntermediateStorage) CreateIntermediate(c appengine.Context, hand
 	return &memoryIntermediateStorageWriter{name, m}, nil
 }
 
-func (m *memoryIntermediateStorage) Iterator(c appengine.Context, name string, handler KeyValueHandler) (IntermediateStorageIterator, error) {
+func (m *memoryIntermediateStorage) Iterator(c context.Context, name string, handler KeyValueHandler) (IntermediateStorageIterator, error) {
 	if _, exists := m.items[name]; !exists {
 		return nil, os.ErrNotExist
 	}
 	return &arrayIterator{m.items[name], 0}, nil
 }
 
-func (m *memoryIntermediateStorage) RemoveIntermediate(c appengine.Context, name string) error {
+func (m *memoryIntermediateStorage) RemoveIntermediate(c context.Context, name string) error {
 	// eh. whatever.
 	delete(m.items, name)
 	return nil
@@ -107,7 +107,7 @@ type memoryIntermediateStorageWriter struct {
 	storage *memoryIntermediateStorage
 }
 
-func (w *memoryIntermediateStorageWriter) Close(c appengine.Context) error { return nil }
+func (w *memoryIntermediateStorageWriter) Close(c context.Context) error { return nil }
 
 func (w *memoryIntermediateStorageWriter) WriteMappedData(data MappedData) error {
 	w.storage.add(w.name, data)
