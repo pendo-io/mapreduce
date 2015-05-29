@@ -462,10 +462,14 @@ func (q AppengineTaskQueue) PostStatus(c context.Context, taskUrl string) error 
 
 func retryTask(c context.Context, ds appwrap.Datastore, taskIntf TaskInterface, jobKey *datastore.Key, taskKey *datastore.Key) error {
 	var job JobInfo
-	if err := ds.Get(jobKey, &job); err == nil {
-		// putting this here is a total hack but we don't want to retry crazy-fast
-		time.Sleep(time.Duration(job.RetryCount) * 5 * time.Second)
+
+	if j, err := getJob(ds, jobKey); err != nil {
+		return fmt.Errorf("getting job: %s", err)
+	} else {
+		job = j
 	}
+
+	time.Sleep(time.Duration(job.RetryCount) * 5 * time.Second)
 
 	if err := backoff.Retry(func() error {
 		var task JobTask
