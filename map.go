@@ -129,18 +129,6 @@ func mapTask(c context.Context, ds appwrap.Datastore, baseUrl string, mr MapRedu
 	var shardNames map[string]int
 	var task JobTask
 
-	defer func() {
-		if r := recover(); r != nil {
-			stack := make([]byte, 16384)
-			bytes := runtime.Stack(stack, false)
-			logCritical(c, "panic inside of map task %s: %s\n%s\n", taskKey.Encode(), r, stack[0:bytes])
-
-			if err := retryTask(c, ds, mr, task.Job, taskKey); err != nil {
-				panic(fmt.Errorf("failed to retry task after panic: %s", err))
-			}
-		}
-	}()
-
 	start := time.Now()
 
 	// we do this before starting the task below so that the parameters are set before
@@ -160,6 +148,18 @@ func mapTask(c context.Context, ds appwrap.Datastore, baseUrl string, mr MapRedu
 	} else {
 		task = t
 	}
+
+	defer func() {
+		if r := recover(); r != nil {
+			stack := make([]byte, 16384)
+			bytes := runtime.Stack(stack, false)
+			logCritical(c, "panic inside of map task %s: %s\n%s\n", taskKey.Encode(), r, stack[0:bytes])
+
+			if err := retryTask(c, ds, mr, task.Job, taskKey); err != nil {
+				panic(fmt.Errorf("failed to retry task after panic: %s", err))
+			}
+		}
+	}()
 
 	if readerName := r.FormValue("reader"); readerName == "" {
 		finalErr = fmt.Errorf("reader parameter required")
