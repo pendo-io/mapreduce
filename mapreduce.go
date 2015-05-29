@@ -283,18 +283,18 @@ func (e *IgnoreTaskStatusChange) Status(jobId int64, task JobTask) {
 
 func logInfo(c context.Context, s string, params ...interface{}) {
 	if c != nil && c.Value("stubcontext") == nil {
-		log.Infof(c, s, params)
+		log.Infof(c, s, params...)
 	}
 }
 
 func logError(c context.Context, s string, params ...interface{}) {
 	if c != nil && c.Value("stubcontext") == nil {
-		log.Errorf(c, s, params)
+		log.Errorf(c, s, params...)
 	}
 }
 
 func logCritical(c context.Context, s string, params ...interface{}) {
 	if c != nil && c.Value("stubcontext") == nil {
-		log.Criticalf(c, s, params)
+		log.Criticalf(c, s, params...)
 	}
 }
