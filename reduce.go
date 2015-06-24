@@ -177,7 +177,7 @@ func ReduceFunc(c context.Context, mr MapReducePipeline, writer SingleOutputWrit
 	for !merger.empty() {
 		item, err := merger.next()
 		if err != nil {
-			return err
+			return tryAgainError{err}
 		}
 
 		if !separateReduceItems && mr.Equal(key, item.Key) {
@@ -204,10 +204,15 @@ func ReduceFunc(c context.Context, mr MapReducePipeline, writer SingleOutputWrit
 	}
 
 	if result, err := mr.Reduce(key, values, statusFunc); err != nil {
+		if _, ok := err.(FatalError); ok {
+			err = err.(FatalError).Err
+		} else {
+			err = tryAgainError{err}
+		}
 		return err
 	} else if result != nil {
 		if err := writer.Write(result); err != nil {
-			return err
+			return tryAgainError{err}
 		}
 	}
 
@@ -216,7 +221,7 @@ func ReduceFunc(c context.Context, mr MapReducePipeline, writer SingleOutputWrit
 	} else {
 		for _, result := range results {
 			if err := writer.Write(result); err != nil {
-				return err
+				return tryAgainError{err}
 			}
 		}
 	}
