@@ -226,8 +226,6 @@ func ReduceFunc(c context.Context, mr MapReducePipeline, writer SingleOutputWrit
 		}
 	}
 
-	writer.Close(c)
-
 	for _, shardName := range shardNames {
 		if err := mr.RemoveIntermediate(c, shardName); err != nil {
 			logError(c, "failed to remove intermediate file: %s", err.Error())

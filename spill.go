@@ -209,13 +209,16 @@ func mergeSpills(c context.Context, intStorage IntermediateStorage, handler KeyV
 	numShards := len(spills[0].linesPerShard)
 
 	type result struct {
-		err  error
-		name string
+		err        error
+		name       string
+		shardCount int
 	}
 
 	closerResults := make(chan result, numShards)
 
 	for shardCount := 0; shardCount < numShards; shardCount++ {
+		shardCount := shardCount
+
 		logInfo(c, "merging shard %d/%d", shardCount, numShards)
 		if shard, merger, err := spillMerger.nextMerger(); err != nil {
 			return nil, fmt.Errorf("failed to create merger for shard %d: %s", shardCount, err)
@@ -229,21 +232,21 @@ func mergeSpills(c context.Context, intStorage IntermediateStorage, handler KeyV
 			go func() {
 				defer func() {
 					if r := recover(); r != nil {
-						closerResults <- result{fmt.Errorf("panic closing intermediate file: %s", r), ""}
+						closerResults <- result{fmt.Errorf("panic closing intermediate file: %s", r), "", shardCount}
 					}
 				}()
 
-				closerResults <- result{w.Close(c), w.ToName()}
+				closerResults <- result{w.Close(c), w.ToName(), shardCount}
 			}()
 		}
 	}
 
 	var closeErr error
-	names := make([]string, 0, numShards)
+	names := make([]string, numShards)
 	for shardCount := 0; shardCount < numShards; shardCount++ {
 		result := <-closerResults
 		closeErr = result.err
-		names = append(names, result.name)
+		names[result.shardCount] = result.name
 	}
 
 	close(closerResults)
