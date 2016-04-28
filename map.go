@@ -29,20 +29,16 @@ import (
 	"time"
 )
 
-func mapMonitorTask(c context.Context, ds appwrap.Datastore, pipeline MapReducePipeline, jobKey *datastore.Key, r *http.Request, timeout time.Duration) {
+func mapMonitorTask(c context.Context, ds appwrap.Datastore, pipeline MapReducePipeline, jobKey *datastore.Key, r *http.Request, timeout time.Duration) int {
 	start := time.Now()
 
 	job, err := waitForStageCompletion(c, ds, pipeline, jobKey, StageMapping, StageReducing, timeout)
 	if err != nil {
 		logCritical(c, "waitForStageCompletion() failed: %s", err)
-		return
+		return 200
 	} else if job.Stage == StageMapping {
-		logInfo(c, "wait timed out -- restarting monitor")
-		if err := pipeline.PostStatus(c, fmt.Sprintf("%s/map-monitor?jobKey=%s", job.UrlPrefix, jobKey.Encode())); err != nil {
-			logCritical(c, "failed to start map monitor task: %s", err)
-		}
-
-		return
+		logInfo(c, "wait timed out -- returning an error and letting us automatically restart")
+		return 200
 	}
 
 	logInfo(c, "map stage completed -- stage is now %s", job.Stage)
@@ -52,7 +48,7 @@ func mapMonitorTask(c context.Context, ds appwrap.Datastore, pipeline MapReduceP
 	if err != nil {
 		logError(c, "failed loading tasks: %s", mapTasks)
 		jobFailed(c, ds, pipeline, jobKey, fmt.Errorf("error loading tasks after map complete: %s", err.Error()))
-		return
+		return 200
 	}
 
 	// we have one set for each reducer task
@@ -63,7 +59,7 @@ func mapMonitorTask(c context.Context, ds appwrap.Datastore, pipeline MapReduceP
 		if err = json.Unmarshal([]byte(mapTasks[i].Result), &shardNames); err != nil {
 			logError(c, `unmarshal error for result from map %d result '%+v'`, job.FirstTaskId+int64(i), mapTasks[i].Result)
 			jobFailed(c, ds, pipeline, jobKey, fmt.Errorf("cannot unmarshal map shard names: %s", err.Error()))
-			return
+			return 200
 		} else {
 			for name, shard := range shardNames {
 				storageNames[shard] = append(storageNames[shard], name)
@@ -74,7 +70,7 @@ func mapMonitorTask(c context.Context, ds appwrap.Datastore, pipeline MapReduceP
 	firstId, _, err := datastore.AllocateIDs(c, TaskEntity, nil, len(job.WriterNames))
 	if err != nil {
 		jobFailed(c, ds, pipeline, jobKey, fmt.Errorf("failed to allocate ids for reduce tasks: %s", err.Error()))
-		return
+		return 200
 	}
 	taskKeys := makeTaskKeys(ds, firstId, len(job.WriterNames))
 	tasks := make([]JobTask, 0, len(job.WriterNames))
@@ -106,22 +102,23 @@ func mapMonitorTask(c context.Context, ds appwrap.Datastore, pipeline MapReduceP
 
 	if err := createTasks(ds, jobKey, taskKeys, tasks, StageReducing); err != nil {
 		jobFailed(c, ds, pipeline, jobKey, fmt.Errorf("failed to create reduce tasks: %s", err.Error()))
-		return
+		return 200
 	}
 
 	for i := range tasks {
 		if err := pipeline.PostTask(c, tasks[i].Url, job.JsonParameters); err != nil {
 			jobFailed(c, ds, pipeline, jobKey, fmt.Errorf("failed to post reduce task: %s", err.Error()))
-			return
+			return 200
 		}
 	}
 
 	if err := pipeline.PostStatus(c, fmt.Sprintf("%s/reduce-monitor?jobKey=%s", job.UrlPrefix, jobKey.Encode())); err != nil {
 		jobFailed(c, ds, pipeline, jobKey, fmt.Errorf("failed to start reduce monitor: %s", err.Error()))
-		return
+		return 200
 	}
 
 	logInfo(c, "mapping complete after %s of monitoring ", time.Now().Sub(start))
+	return 200
 }
 
 func mapTask(c context.Context, ds appwrap.Datastore, baseUrl string, mr MapReducePipeline, taskKey *datastore.Key, w http.ResponseWriter, r *http.Request) {

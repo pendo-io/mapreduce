@@ -29,20 +29,17 @@ import (
 	"time"
 )
 
-func reduceMonitorTask(c context.Context, ds appwrap.Datastore, pipeline MapReducePipeline, jobKey *datastore.Key, r *http.Request, timeout time.Duration) {
+func reduceMonitorTask(c context.Context, ds appwrap.Datastore, pipeline MapReducePipeline, jobKey *datastore.Key, r *http.Request, timeout time.Duration) int {
 	start := time.Now()
 
 	job, err := waitForStageCompletion(c, ds, pipeline, jobKey, StageReducing, StageDone, timeout)
 	if err != nil {
 		logCritical(c, "waitForStageCompletion() failed: %S", err)
-		return
+		return 200
 	} else if job.Stage == StageReducing {
-		logInfo(c, "wait timed out -- restarting monitor")
-		if err := pipeline.PostStatus(c, fmt.Sprintf("%s/reduce-monitor?jobKey=%s", job.UrlPrefix, jobKey.Encode())); err != nil {
-			logCritical(c, "failed to start reduce monitor task: %s", err)
-		}
+		logInfo(c, "wait timed out -- returning an error and letting us automatically restart")
 
-		return
+		return 500
 	}
 
 	logInfo(c, "reduce complete status: %s", job.Stage)
@@ -53,6 +50,8 @@ func reduceMonitorTask(c context.Context, ds appwrap.Datastore, pipeline MapRedu
 	}
 
 	logInfo(c, "reduction complete after %s of monitoring ", time.Now().Sub(start))
+
+	return 200
 }
 
 func reduceTask(c context.Context, ds appwrap.Datastore, baseUrl string, mr MapReducePipeline, taskKey *datastore.Key, w http.ResponseWriter, r *http.Request) {

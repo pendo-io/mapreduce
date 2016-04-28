@@ -230,9 +230,9 @@ func (h urlHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, fmt.Sprintf("invalid jobKey: %s", err.Error()),
 				http.StatusBadRequest)
 		} else if strings.HasSuffix(r.URL.Path, "/map-monitor") {
-			mapMonitorTask(c, ds, h.pipeline, jobKey, r, monitorTimeout)
+			w.WriteHeader(mapMonitorTask(c, ds, h.pipeline, jobKey, r, monitorTimeout))
 		} else {
-			reduceMonitorTask(c, ds, h.pipeline, jobKey, r, monitorTimeout)
+			w.WriteHeader(reduceMonitorTask(c, ds, h.pipeline, jobKey, r, monitorTimeout))
 		}
 
 		return
