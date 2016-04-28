@@ -99,6 +99,9 @@ const (
 const JobEntity = "MapReduceJob"
 const TaskEntity = "MapReduceTask"
 
+// this is returned when multiple monitors conflict; only the conflicting monitor complains
+var errMonitorJobConflict = fmt.Errorf("monitor job conflict detected")
+
 func createJob(ds appwrap.Datastore, urlPrefix string, writerNames []string, onCompleteUrl string, separateReduceItems bool, jsonParameters string, retryCount int) (*datastore.Key, error) {
 	if retryCount == 0 {
 		// default
@@ -263,7 +266,7 @@ func jobStageComplete(c context.Context, ds appwrap.Datastore, jobKey *datastore
 		if job.Stage != expectedStage {
 			// we're not where we expected, so advancing this isn't our responsibility
 			stageChanged = false
-			return nil
+			return errMonitorJobConflict
 		}
 
 		job.Stage = nextStage
@@ -531,7 +534,10 @@ func doWaitForStageCompletion(c context.Context, ds appwrap.Datastore, taskIntf 
 
 	for time.Now().Sub(start) < timeout {
 		stageChanged, newJob, err := checkCompletion(c, ds, jobKey, taskKeys, currentStage, nextStage)
-		if !stageChanged {
+		if err == errMonitorJobConflict {
+			logError(c, "monitor job conflict detected")
+			return JobInfo{}, err
+		} else if !stageChanged {
 			// this ignores errors.. it should instead sleep a bit longer and maybe even resubmit the
 			// monitor job
 
