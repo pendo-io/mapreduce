@@ -218,7 +218,7 @@ func (h urlHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	c := h.getContext(r)
 	ds := appwrap.NewAppengineDatastore(c)
 
-	monitorTimeout := time.Minute * 5
+	monitorTimeout := time.Minute * 30
 	if appengine.IsDevAppServer() {
 		monitorTimeout = time.Second * 10
 	}
