@@ -68,6 +68,7 @@ type JobInfo struct {
 	UrlPrefix           string
 	Stage               JobStage
 	UpdatedAt           time.Time
+	StartTime           time.Time
 	TaskCount           int      `datastore:"TasksRunning,noindex"`
 	FirstTaskId         int64    `datastore:",noindex"`
 	RetryCount          int      `datastore:",noindex"`
@@ -113,6 +114,7 @@ func createJob(ds appwrap.Datastore, urlPrefix string, writerNames []string, onC
 		UrlPrefix:           urlPrefix,
 		Stage:               StageFormation,
 		UpdatedAt:           time.Now(),
+		StartTime:           time.Now(),
 		OnCompleteUrl:       onCompleteUrl,
 		SeparateReduceItems: separateReduceItems,
 		WriterNames:         writerNames,

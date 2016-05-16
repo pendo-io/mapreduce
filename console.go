@@ -4,10 +4,12 @@ import (
 	"github.com/pendo-io/appwrap"
 	"google.golang.org/appengine"
 	"google.golang.org/appengine/datastore"
+	"google.golang.org/appengine/log"
 	"html/template"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const main = `<html><head><title>MapReduce Console</title><style>
@@ -26,7 +28,9 @@ table,td,th {
     <th align="center">Id</th>
     <th align="center">Url</th>
     <th align="center">Stage</th>
+    <th align="center">Start Time</th>
     <th align="center">Updated Time</th>
+    <th align="center">Duration</th>
     <th></td>
 </tr>
 
@@ -39,7 +43,9 @@ table,td,th {
     </td>
     <td>{{$job.UrlPrefix}}</td>
     <td align="center">{{$job.Stage}}</td>
+    <td>{{$job.StartTime}}</td>
     <td>{{$job.UpdatedAt}}</td>
+    <td>{{$job.Duration}}</td>
     <td><button onclick="location.href='delete?id={{$id}}'">Delete</button></td>
 </tr>
 {{end}}
@@ -66,6 +72,7 @@ table,td,th {
     <th align="center">Type</th>
     <th align="center">Status</th>
     <th align="center">Run Count</th>
+    <th align="center">Start Time</th>
     <th align="center">Update Time</th>
     <th align="center">Info</th>
 </tr>
@@ -158,25 +165,31 @@ func jobList(w http.ResponseWriter, r *http.Request, skipId int64) {
 		return
 	}
 
-	if skipId != 0 {
-		for i, key := range keys {
-			if key.IntID() == skipId {
-				if i == len(jobs)-1 {
-					jobs = jobs[0:i]
-				} else {
-					jobs = append(jobs[0:i], jobs[i+1:len(jobs)-1]...)
-				}
-				break
+	type annotatedJob struct {
+		JobInfo
+		Duration time.Duration
+	}
+	annotatedList := make([]annotatedJob, 0, len(keys))
+
+	for i, key := range keys {
+		if key.IntID() != skipId {
+			job := annotatedJob{JobInfo: jobs[i]}
+			if !jobs[i].StartTime.IsZero() {
+				job.Duration = jobs[i].UpdatedAt.Sub(jobs[i].StartTime)
 			}
+
+			annotatedList = append(annotatedList, job)
 		}
 	}
+
+	log.Infof(c, "%d jobs %d annotatedList", len(jobs), len(annotatedList))
 
 	t := template.New("main")
 	t, _ = t.Parse(main)
 	err = t.Execute(w, struct {
-		Jobs []JobInfo
+		Jobs []annotatedJob
 		Keys []*datastore.Key
-	}{jobs, keys})
+	}{annotatedList, keys})
 	if err != nil {
 		http.Error(w, "Internal error: "+err.Error(), http.StatusInternalServerError)
 		return
