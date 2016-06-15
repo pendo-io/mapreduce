@@ -26,6 +26,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"runtime"
+	"sync"
 	"time"
 )
 
@@ -131,22 +132,25 @@ func ReduceFunc(c context.Context, mr MapReducePipeline, writer SingleOutputWrit
 		err      error
 	}
 
-	resultsCh := make(chan result)
+	results := make([]result, len(shardNames))
+	wg := sync.WaitGroup{}
 
-	for _, shardName := range shardNames {
-		shardName := shardName
+	for i, shardName := range shardNames {
+		i, shardName := i, shardName
+		wg.Add(1)
 
 		go func() {
+			defer wg.Done()
 			iterator, err := mr.Iterator(c, shardName, mr)
-			resultsCh <- result{iterator, err}
+			results[i] = result{iterator, err}
 		}()
 	}
 
-	for _, shardName := range shardNames {
-		result := <-resultsCh
+	wg.Wait()
 
+	for i, result := range results {
 		if result.err != nil {
-			return tryAgainError{fmt.Errorf("cannot open intermediate file %s: %s", shardName, result.err)}
+			return tryAgainError{fmt.Errorf("cannot open intermediate file %s: %s", shardNames[i], result.err)}
 		}
 
 		merger.addSource(result.iterator)
