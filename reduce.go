@@ -94,6 +94,8 @@ func reduceTask(c context.Context, ds appwrap.Datastore, baseUrl string, mr MapR
 		finalErr = fmt.Errorf("writer parameter required")
 	} else if writer, err = mr.WriterFromName(c, writerName); err != nil {
 		finalErr = fmt.Errorf("error getting writer: %s", err.Error())
+	} else if len(task.ReadFrom) == 0 {
+		// nothing to read
 	} else {
 		shardReader, _ := zlib.NewReader(bytes.NewBuffer(task.ReadFrom))
 		shardJson, _ := ioutil.ReadAll(shardReader)

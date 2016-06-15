@@ -98,6 +98,22 @@ func mapMonitorTask(c context.Context, ds appwrap.Datastore, pipeline MapReduceP
 		}
 	}
 
+	// this means we got nothing from maps. there is no result. so, we're done! right? that's hard to communicate though
+	// so we'll just start a single task with no inputs
+	if len(tasks) == 0 {
+		logInfo(c, "no results from maps -- starting noop reduce task")
+		url := fmt.Sprintf("%s/reduce?taskKey=%s;shard=%d;writer=%s",
+			job.UrlPrefix, taskKeys[len(tasks)].Encode(), 0, url.QueryEscape(job.WriterNames[0]))
+
+		tasks = append(tasks, JobTask{
+			Status:              TaskStatusPending,
+			Url:                 url,
+			ReadFrom:            []byte(``),
+			SeparateReduceItems: job.SeparateReduceItems,
+			Type:                TaskTypeReduce,
+		})
+	}
+
 	taskKeys = taskKeys[0:len(tasks)]
 
 	if err := createTasks(ds, jobKey, taskKeys, tasks, StageReducing); err != nil {
