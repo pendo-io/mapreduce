@@ -245,7 +245,9 @@ func mergeSpills(c context.Context, intStorage IntermediateStorage, handler KeyV
 	names := make([]string, numShards)
 	for shardCount := 0; shardCount < numShards; shardCount++ {
 		result := <-closerResults
-		closeErr = result.err
+		if closeErr == nil {
+			closeErr = result.err
+		}
 		names[result.shardCount] = result.name
 	}
 
