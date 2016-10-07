@@ -38,7 +38,7 @@ func mapMonitorTask(c context.Context, ds appwrap.Datastore, pipeline MapReduceP
 		return 200
 	} else if job.Stage == StageMapping {
 		logInfo(c, "wait timed out -- returning an error and letting us automatically restart")
-		return 200
+		return 500
 	}
 
 	logInfo(c, "map stage completed -- stage is now %s", job.Stage)
