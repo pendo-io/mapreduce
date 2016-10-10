@@ -265,10 +265,7 @@ func jobStageComplete(c context.Context, ds appwrap.Datastore, jobKey *datastore
 			return err
 		}
 
-		if job.Stage == nextStage {
-			// someone got here before us
-			return nil
-		} else if job.Stage != expectedStage {
+		if job.Stage != expectedStage {
 			// we're not where we expected, so advancing this isn't our responsibility
 			stageChanged = false
 			return errMonitorJobConflict
