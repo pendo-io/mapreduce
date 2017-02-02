@@ -85,6 +85,7 @@ table,td,th {
     <td align="center">{{$task.Type}}</td>
     <td align="center">{{$task.Status}}</td>
     <td align="center">{{$task.Retries}}</td>
+    <td align="center">{{$task.StartTime}}</td>
     <td align="center">{{$task.UpdatedAt}}</td>
     <td align="center">{{$task.Info}}</td>
 </tr>
