@@ -101,14 +101,31 @@ func ConsoleHandler(w http.ResponseWriter, r *http.Request) {
 
 	if strings.HasSuffix(r.URL.Path, "/job") {
 		id, _ := strconv.ParseInt(r.FormValue("id"), 10, 64)
-		jobKey := datastore.NewKey(c, JobEntity, "", id, nil)
 
-		q := datastore.NewQuery(TaskEntity).Filter("Job =", jobKey)
 		var tasks []JobTask
-		taskKeys, err := q.GetAll(c, &tasks)
-		if err != nil {
-			http.Error(w, "Internal error: "+err.Error(), http.StatusInternalServerError)
+		var taskKeys []*datastore.Key
+		if job, err := GetJob(ds, id); err != nil {
+			http.Error(w, "Internal error reading job: "+err.Error(), http.StatusInternalServerError)
 			return
+		} else {
+			switch job.Stage {
+			case StageMapping, StageReducing:
+				if tl, err := GetJobTasks(ds, job); err != nil {
+					http.Error(w, "Internal error reading tasks: "+err.Error(), http.StatusInternalServerError)
+					return
+				} else {
+					tasks = tl
+					taskKeys = makeTaskKeys(ds, job.FirstTaskId, job.TaskCount)
+				}
+			default:
+				jobKey := datastore.NewKey(c, JobEntity, "", id, nil)
+				if tk, err := datastore.NewQuery(TaskEntity).Filter("Job =", jobKey).GetAll(c, &tasks); err != nil {
+					http.Error(w, "Internal error: "+err.Error(), http.StatusInternalServerError)
+					return
+				} else {
+					taskKeys = tk
+				}
+			}
 		}
 
 		running := 0
@@ -130,13 +147,12 @@ func ConsoleHandler(w http.ResponseWriter, r *http.Request) {
 
 		t := template.New("main")
 		t, _ = t.Parse(jobPage)
-		err = t.Execute(w, struct {
+		if err := t.Execute(w, struct {
 			Id                             int64
 			Tasks                          []JobTask
 			TaskKeys                       []*datastore.Key
 			Pending, Running, Done, Failed int
-		}{id, tasks, taskKeys, pending, running, done, failed})
-		if err != nil {
+		}{id, tasks, taskKeys, pending, running, done, failed}); err != nil {
 			http.Error(w, "Internal error: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
