@@ -58,7 +58,7 @@ func (mrt *MapreduceTests) TestSpill(c *ck.C) {
 		spills[pass] = spill
 	}
 
-	names, err := mergeSpills(nil, memStorage, handler, spills)
+	names, err := mergeSpills(nil, memStorage, handler, spills, mrt.nullLog)
 	c.Assert(err, ck.IsNil)
 	c.Assert(len(names), ck.Equals, 5)
 

@@ -66,7 +66,7 @@ func (mrt *MapreduceTests) TestJobStageComplete(c *ck.C) {
 	c.Assert(err, ck.IsNil)
 	checkStage(StageMapping)
 
-	advanced, _, err := jobStageComplete(ctx, ds, jobKey, taskKeys, StageMapping, StageReducing)
+	advanced, _, err := jobStageComplete(ds, jobKey, taskKeys, StageMapping, StageReducing, mrt.nullLog)
 	c.Assert(err, ck.IsNil)
 	c.Assert(advanced, ck.Equals, false)
 
@@ -74,7 +74,7 @@ func (mrt *MapreduceTests) TestJobStageComplete(c *ck.C) {
 	tasks[0].Done = jobKey
 	_, err = ds.Put(taskKeys[0], &tasks[0])
 	c.Assert(err, ck.IsNil)
-	advanced, _, err = jobStageComplete(ctx, ds, jobKey, taskKeys, StageMapping, StageReducing)
+	advanced, _, err = jobStageComplete(ds, jobKey, taskKeys, StageMapping, StageReducing, mrt.nullLog)
 	c.Assert(err, ck.IsNil)
 	c.Assert(advanced, ck.Equals, false)
 
@@ -84,13 +84,13 @@ func (mrt *MapreduceTests) TestJobStageComplete(c *ck.C) {
 	c.Assert(err, ck.IsNil)
 
 	// this uses an index query, which is eventually consistent
-	advanced, _, err = jobStageComplete(ctx, ds, jobKey, taskKeys, StageMapping, StageReducing)
+	advanced, _, err = jobStageComplete(ds, jobKey, taskKeys, StageMapping, StageReducing, mrt.nullLog)
 	c.Assert(err, ck.IsNil)
 	c.Assert(advanced, ck.Equals, true)
 	checkStage(StageReducing)
 
 	// we're already at StageReducing, so nothing should happen here
-	advanced, _, err = jobStageComplete(ctx, ds, jobKey, taskKeys, StageMapping, StageReducing)
+	advanced, _, err = jobStageComplete(ds, jobKey, taskKeys, StageMapping, StageReducing, mrt.nullLog)
 	c.Assert(err, ck.IsNil)
 	c.Assert(advanced, ck.Equals, false)
 	checkStage(StageReducing)
@@ -115,7 +115,7 @@ func (mrt *MapreduceTests) TestJobStageComplete(c *ck.C) {
 	c.Assert(err, ck.IsNil)
 
 	// this uses an index query, which is eventually consistent
-	advanced, checkJob, err := jobStageComplete(ctx, ds, jobKey, reduceKeys, StageReducing, StageDone)
+	advanced, checkJob, err := jobStageComplete(ds, jobKey, reduceKeys, StageReducing, StageDone, mrt.nullLog)
 	c.Assert(advanced, ck.Equals, true)
 	c.Assert(checkJob.Stage, ck.Equals, StageFailed)
 	checkStage(StageFailed)
@@ -130,7 +130,7 @@ func (mrt *MapreduceTests) TestWaitForStageCompletion(c *ck.C) {
 	taskMock := &taskInterfaceMock{}
 	count := 0
 	job, err := doWaitForStageCompletion(ctx, ds, taskMock, jobKey, StageMapping, StageReducing, 1*time.Millisecond,
-		func(c context.Context, ds appwrap.Datastore, jobKey *datastore.Key, tasks []*datastore.Key, expectedStage, nextStage JobStage) (stageChanged bool, job JobInfo, finalErr error) {
+		func(ds appwrap.Datastore, jobKey *datastore.Key, tasks []*datastore.Key, expectedStage, nextStage JobStage, log appwrap.Logging) (stageChanged bool, job JobInfo, finalErr error) {
 			if count == 5 {
 				return true, JobInfo{UrlPrefix: "foo"}, nil
 			}
@@ -138,18 +138,18 @@ func (mrt *MapreduceTests) TestWaitForStageCompletion(c *ck.C) {
 			count++
 			return false, JobInfo{}, nil
 		},
-		time.Minute)
+		time.Minute, mrt.nullLog)
 	c.Assert(err, ck.IsNil)
 	c.Assert(job.UrlPrefix, ck.Equals, "foo")
 
 	taskMock.On("PostStatus", ctx, mock.Anything).Return(nil).Once()
 
 	job, err = doWaitForStageCompletion(ctx, ds, taskMock, jobKey, StageMapping, StageReducing, 1*time.Millisecond,
-		func(c context.Context, ds appwrap.Datastore, jobKey *datastore.Key, tasks []*datastore.Key, expectedStage, nextStage JobStage) (stageChanged bool, job JobInfo, finalErr error) {
+		func(ds appwrap.Datastore, jobKey *datastore.Key, tasks []*datastore.Key, expectedStage, nextStage JobStage, log appwrap.Logging) (stageChanged bool, job JobInfo, finalErr error) {
 			// this is what happens when a task fails
 			return true, JobInfo{Stage: StageFailed}, taskError{"some failure"}
 		},
-		time.Minute)
+		time.Minute, mrt.nullLog)
 
 	c.Assert(err, ck.NotNil)
 	taskMock.AssertExpectations(c)

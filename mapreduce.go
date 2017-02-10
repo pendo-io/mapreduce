@@ -21,7 +21,6 @@ import (
 	"golang.org/x/net/context"
 	"google.golang.org/appengine"
 	"google.golang.org/appengine/datastore"
-	"google.golang.org/appengine/log"
 	"net/http"
 	"strings"
 	"time"
@@ -136,6 +135,8 @@ type MapReduceJob struct {
 }
 
 func Run(c context.Context, ds appwrap.Datastore, job MapReduceJob) (int64, error) {
+	log := appwrap.NewAppengineLogging(c)
+
 	readerNames, err := job.Inputs.ReaderNames()
 	if err != nil {
 		return 0, fmt.Errorf("forming reader names: %s", err)
@@ -177,23 +178,23 @@ func Run(c context.Context, ds appwrap.Datastore, job MapReduceJob) (int64, erro
 	}
 
 	if err := createTasks(ds, jobKey, taskKeys, tasks, StageMapping); err != nil {
-		if _, innerErr := markJobFailed(c, ds, jobKey); err != nil {
-			logError(c, "failed to log job %d as failed: %s", jobKey.IntID(), innerErr)
+		if _, innerErr := markJobFailed(c, ds, jobKey, log); err != nil {
+			log.Errorf("failed to log job %d as failed: %s", jobKey.IntID(), innerErr)
 		}
 		return 0, fmt.Errorf("creating tasks: %s", err)
 	}
 
 	for i := range tasks {
 		if err := job.PostTask(c, tasks[i].Url, job.JobParameters); err != nil {
-			if _, innerErr := markJobFailed(c, ds, jobKey); err != nil {
-				logError(c, "failed to log job %d as failed: %s", jobKey.IntID(), innerErr)
+			if _, innerErr := markJobFailed(c, ds, jobKey, log); err != nil {
+				log.Errorf("failed to log job %d as failed: %s", jobKey.IntID(), innerErr)
 			}
 			return 0, fmt.Errorf("posting task: %s", err)
 		}
 	}
 
 	if err := job.PostStatus(c, fmt.Sprintf("%s/map-monitor?jobKey=%s", job.UrlPrefix, jobKey.Encode())); err != nil {
-		logCritical(c, "failed to start map monitor task: %s", err)
+		log.Criticalf("failed to start map monitor task: %s", err)
 	}
 
 	return jobKey.IntID(), nil
@@ -217,6 +218,7 @@ func MapReduceHandler(baseUrl string, pipeline MapReducePipeline,
 func (h urlHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	c := h.getContext(r)
 	ds := appwrap.NewAppengineDatastore(c)
+	log := appwrap.NewAppengineLogging(c)
 
 	monitorTimeout := time.Minute * 30
 	if appengine.IsDevAppServer() {
@@ -230,9 +232,9 @@ func (h urlHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, fmt.Sprintf("invalid jobKey: %s", err.Error()),
 				http.StatusBadRequest)
 		} else if strings.HasSuffix(r.URL.Path, "/map-monitor") {
-			w.WriteHeader(mapMonitorTask(c, ds, h.pipeline, jobKey, r, monitorTimeout))
+			w.WriteHeader(mapMonitorTask(c, ds, h.pipeline, jobKey, r, monitorTimeout, log))
 		} else {
-			w.WriteHeader(reduceMonitorTask(c, ds, h.pipeline, jobKey, r, monitorTimeout))
+			w.WriteHeader(reduceMonitorTask(c, ds, h.pipeline, jobKey, r, monitorTimeout, log))
 		}
 
 		return
@@ -250,10 +252,12 @@ func (h urlHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	log = appwrap.PrefixLogger{Logging: log, Prefix: fmt.Sprintf("%s: ", taskKey)}
+
 	if strings.HasSuffix(r.URL.Path, "/reduce") {
-		reduceTask(c, ds, h.baseUrl, h.pipeline, taskKey, w, r)
+		reduceTask(c, ds, h.baseUrl, h.pipeline, taskKey, w, r, log)
 	} else if strings.HasSuffix(r.URL.Path, "/map") {
-		mapTask(c, ds, h.baseUrl, h.pipeline, taskKey, w, r)
+		mapTask(c, ds, h.baseUrl, h.pipeline, taskKey, w, r, log)
 	} else if strings.HasSuffix(r.URL.Path, "/mapstatus") ||
 		strings.HasSuffix(r.URL.Path, "/reducestatus") {
 
@@ -264,13 +268,13 @@ func (h urlHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func makeStatusUpdateFunc(c context.Context, ds appwrap.Datastore, pipeline MapReducePipeline, urlStr string, taskKey string) StatusUpdateFunc {
+func makeStatusUpdateFunc(c context.Context, ds appwrap.Datastore, pipeline MapReducePipeline, urlStr string, taskKey string, log appwrap.Logging) StatusUpdateFunc {
 	return func(format string, paramList ...interface{}) {
 		msg := fmt.Sprintf(format, paramList...)
 		if key, err := datastore.DecodeKey(taskKey); err != nil {
-			logError(c, "failed to decode task key for status: %s", err)
+			log.Errorf("failed to decode task key for status: %s", err)
 		} else if _, err := updateTask(ds, key, "", 0, msg, nil); err != nil {
-			logError(c, "failed to update task status: %s", err)
+			log.Errorf("failed to update task status: %s", err)
 		}
 	}
 }
@@ -279,22 +283,4 @@ func makeStatusUpdateFunc(c context.Context, ds appwrap.Datastore, pipeline MapR
 type IgnoreTaskStatusChange struct{}
 
 func (e *IgnoreTaskStatusChange) Status(jobId int64, task JobTask) {
-}
-
-func logInfo(c context.Context, s string, params ...interface{}) {
-	if c != nil && c.Value("stubcontext") == nil {
-		log.Infof(c, s, params...)
-	}
-}
-
-func logError(c context.Context, s string, params ...interface{}) {
-	if c != nil && c.Value("stubcontext") == nil {
-		log.Errorf(c, s, params...)
-	}
-}
-
-func logCritical(c context.Context, s string, params ...interface{}) {
-	if c != nil && c.Value("stubcontext") == nil {
-		log.Criticalf(c, s, params...)
-	}
 }

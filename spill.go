@@ -19,6 +19,7 @@ import (
 	"compress/gzip"
 	"encoding/binary"
 	"fmt"
+	"github.com/pendo-io/appwrap"
 	"golang.org/x/net/context"
 	"io"
 	"sort"
@@ -196,7 +197,7 @@ func (merger *spillMerger) nextMerger() (int, *mappedDataMerger, error) {
 	return merger.nextShard - 1, mm, nil
 }
 
-func mergeSpills(c context.Context, intStorage IntermediateStorage, handler KeyValueHandler, spills []spillStruct) ([]string, error) {
+func mergeSpills(c context.Context, intStorage IntermediateStorage, handler KeyValueHandler, spills []spillStruct, log appwrap.Logging) ([]string, error) {
 	if len(spills) == 0 {
 		return []string{}, nil
 	}
@@ -219,7 +220,7 @@ func mergeSpills(c context.Context, intStorage IntermediateStorage, handler KeyV
 	for shardCount := 0; shardCount < numShards; shardCount++ {
 		shardCount := shardCount
 
-		logInfo(c, "merging shard %d/%d", shardCount, numShards)
+		log.Infof("merging shard %d/%d", shardCount, numShards)
 		if shard, merger, err := spillMerger.nextMerger(); err != nil {
 			return nil, fmt.Errorf("failed to create merger for shard %d: %s", shardCount, err)
 		} else if shard != shardCount {

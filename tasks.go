@@ -195,7 +195,7 @@ func runInTransaction(ds appwrap.Datastore, f func(ds appwrap.Datastore) error) 
 	}, mrBackOff())
 }
 
-func markJobFailed(c context.Context, ds appwrap.Datastore, jobKey *datastore.Key) (prev JobInfo, finalErr error) {
+func markJobFailed(c context.Context, ds appwrap.Datastore, jobKey *datastore.Key, log appwrap.Logging) (prev JobInfo, finalErr error) {
 	finalErr = runInTransaction(ds, func(ds appwrap.Datastore) error {
 		prev = JobInfo{}
 		if err := ds.Get(jobKey, &prev); err != nil {
@@ -210,7 +210,7 @@ func markJobFailed(c context.Context, ds appwrap.Datastore, jobKey *datastore.Ke
 	})
 
 	if finalErr != nil {
-		logCritical(c, "marking job failed for key %s failed: %s", jobKey, finalErr)
+		log.Criticalf("marking job failed for key %s failed: %s", jobKey, finalErr)
 	}
 
 	return
@@ -225,7 +225,7 @@ func (t taskError) Error() string { return "taskError " + t.err }
 //
 // caller needs to check the stage in the final job; if stageChanged is true it will be either nextStage or StageFailed.
 // If StageFailed then at least one of the underlying tasks failed and the reason will appear as a taskError{} in err
-func jobStageComplete(c context.Context, ds appwrap.Datastore, jobKey *datastore.Key, taskKeys []*datastore.Key, expectedStage, nextStage JobStage) (stageChanged bool, job JobInfo, finalErr error) {
+func jobStageComplete(ds appwrap.Datastore, jobKey *datastore.Key, taskKeys []*datastore.Key, expectedStage, nextStage JobStage, log appwrap.Logging) (stageChanged bool, job JobInfo, finalErr error) {
 	last := len(taskKeys)
 	tasks := make([]JobTask, 100)
 	for last > 0 {
@@ -242,7 +242,7 @@ func jobStageComplete(c context.Context, ds appwrap.Datastore, jobKey *datastore
 		} else {
 			for i := 0; i < taskCount; i++ {
 				if tasks[i].Status == TaskStatusFailed {
-					logInfo(c, "failed tasks found")
+					log.Infof("failed tasks found")
 					nextStage = StageFailed
 					last = -1
 					finalErr = taskError{tasks[i].Info}
@@ -282,9 +282,9 @@ func jobStageComplete(c context.Context, ds appwrap.Datastore, jobKey *datastore
 	}
 
 	if finalErr != nil {
-		logCritical(c, "taskComplete failed: %s", finalErr)
+		log.Criticalf("taskComplete failed: %s", finalErr)
 	} else {
-		logInfo(c, "task is complete")
+		log.Infof("task is complete")
 	}
 
 	return
@@ -465,7 +465,7 @@ func (q AppengineTaskQueue) PostStatus(c context.Context, taskUrl string) error 
 	return err
 }
 
-func retryTask(c context.Context, ds appwrap.Datastore, taskIntf TaskInterface, jobKey *datastore.Key, taskKey *datastore.Key) error {
+func retryTask(c context.Context, ds appwrap.Datastore, taskIntf TaskInterface, jobKey *datastore.Key, taskKey *datastore.Key, log appwrap.Logging) error {
 	var job JobInfo
 
 	if j, err := getJob(ds, jobKey); err != nil {
@@ -489,19 +489,19 @@ func retryTask(c context.Context, ds appwrap.Datastore, taskIntf TaskInterface, 
 			return fmt.Errorf("enqueuing task: %s", err)
 		}
 
-		logInfo(c, "retrying task %d/%d", task.Retries, job.RetryCount)
+		log.Infof("retrying task %d/%d", task.Retries, job.RetryCount)
 		return nil
 	}, mrBackOff()); err != nil {
-		logInfo(c, "retryTask() failed after backoff attempts")
+		log.Infof("retryTask() failed after backoff attempts")
 		return err
 	} else {
 		return nil
 	}
 }
 
-func jobFailed(c context.Context, ds appwrap.Datastore, taskIntf TaskInterface, jobKey *datastore.Key, err error) {
-	logError(c, "jobFailed: %s", err)
-	prevJob, _ := markJobFailed(c, ds, jobKey) // this might mark it failed again. whatever.
+func jobFailed(c context.Context, ds appwrap.Datastore, taskIntf TaskInterface, jobKey *datastore.Key, err error, log appwrap.Logging) {
+	log.Errorf("jobFailed: %s", err)
+	prevJob, _ := markJobFailed(c, ds, jobKey, log) // this might mark it failed again. whatever.
 
 	if prevJob.OnCompleteUrl != "" {
 		taskIntf.PostStatus(c, fmt.Sprintf("%s?status=error;error=%s;id=%d", prevJob.OnCompleteUrl,
@@ -512,19 +512,19 @@ func jobFailed(c context.Context, ds appwrap.Datastore, taskIntf TaskInterface, 
 }
 
 // waitForStageCompletion() is split up like this for testability
-type jobStageCompletionFunc func(c context.Context, ds appwrap.Datastore, jobKey *datastore.Key, taskKeys []*datastore.Key, expectedStage, nextStage JobStage) (stageChanged bool, job JobInfo, finalErr error)
+type jobStageCompletionFunc func(ds appwrap.Datastore, jobKey *datastore.Key, taskKeys []*datastore.Key, expectedStage, nextStage JobStage, log appwrap.Logging) (stageChanged bool, job JobInfo, finalErr error)
 
-func waitForStageCompletion(c context.Context, ds appwrap.Datastore, taskIntf TaskInterface, jobKey *datastore.Key, currentStage, nextStage JobStage, timeout time.Duration) (JobInfo, error) {
-	return doWaitForStageCompletion(c, ds, taskIntf, jobKey, currentStage, nextStage, 5*time.Second, jobStageComplete, timeout)
+func waitForStageCompletion(c context.Context, ds appwrap.Datastore, taskIntf TaskInterface, jobKey *datastore.Key, currentStage, nextStage JobStage, timeout time.Duration, log appwrap.Logging) (JobInfo, error) {
+	return doWaitForStageCompletion(c, ds, taskIntf, jobKey, currentStage, nextStage, 5*time.Second, jobStageComplete, timeout, log)
 }
 
 // if err != nil, this failed (which should never happen, and should be considered fatal)
-func doWaitForStageCompletion(c context.Context, ds appwrap.Datastore, taskIntf TaskInterface, jobKey *datastore.Key, currentStage, nextStage JobStage, delay time.Duration, checkCompletion jobStageCompletionFunc, timeout time.Duration) (JobInfo, error) {
+func doWaitForStageCompletion(c context.Context, ds appwrap.Datastore, taskIntf TaskInterface, jobKey *datastore.Key, currentStage, nextStage JobStage, delay time.Duration, checkCompletion jobStageCompletionFunc, timeout time.Duration, log appwrap.Logging) (JobInfo, error) {
 	var job JobInfo
 	var taskKeys []*datastore.Key
 
 	if j, err := getJob(ds, jobKey); err != nil {
-		logCritical(c, "monitor failed to load job: %s", err)
+		log.Criticalf("monitor failed to load job: %s", err)
 		//http.Error(w, "error loading job", 500)
 		return JobInfo{}, err
 	} else {
@@ -535,22 +535,22 @@ func doWaitForStageCompletion(c context.Context, ds appwrap.Datastore, taskIntf 
 	start := time.Now()
 
 	for time.Now().Sub(start) < timeout {
-		stageChanged, newJob, err := checkCompletion(c, ds, jobKey, taskKeys, currentStage, nextStage)
+		stageChanged, newJob, err := checkCompletion(ds, jobKey, taskKeys, currentStage, nextStage, log)
 		if err == errMonitorJobConflict {
-			logError(c, "monitor job conflict detected")
+			log.Errorf("monitor job conflict detected")
 			return JobInfo{}, err
 		} else if !stageChanged {
 			// this ignores errors.. it should instead sleep a bit longer and maybe even resubmit the
 			// monitor job
 
 			if err != nil {
-				logError(c, "error getting map task complete status: %s", err.Error())
+				log.Errorf("error getting map task complete status: %s", err.Error())
 			}
 
 			time.Sleep(delay)
 		} else if newJob.Stage == StageFailed {
 			// we found a failed task; the job has been marked as failed; notify the caller and exit
-			jobFailed(c, ds, taskIntf, jobKey, err)
+			jobFailed(c, ds, taskIntf, jobKey, err, log)
 			return job, fmt.Errorf("failed task")
 		} else if err != nil {
 			// this really shouldn't happen.
@@ -562,7 +562,7 @@ func doWaitForStageCompletion(c context.Context, ds appwrap.Datastore, taskIntf 
 		}
 	}
 
-	logInfo(c, "after wait job status is %s", job.Stage)
+	log.Infof("after wait job status is %s", job.Stage)
 
 	return job, nil
 }
@@ -573,7 +573,7 @@ type startTopIntf interface {
 }
 
 // returns job if err is nil, err, and a boolean saying if the task should be restarted (true/false)
-func startTask(c context.Context, ds appwrap.Datastore, taskIntf startTopIntf, taskKey *datastore.Key) (JobTask, error, bool) {
+func startTask(c context.Context, ds appwrap.Datastore, taskIntf startTopIntf, taskKey *datastore.Key, log appwrap.Logging) (JobTask, error, bool) {
 	if task, err := getTask(ds, taskKey); err != nil {
 		return JobTask{}, fmt.Errorf("failed to get task status: %s", err), true
 	} else if job, err := getJob(ds, task.Job); err != nil {
@@ -589,9 +589,9 @@ func startTask(c context.Context, ds appwrap.Datastore, taskIntf startTopIntf, t
 		if task.Status == TaskStatusRunning {
 			// we think we're already running, but we got here. that means we failed
 			// unexpectedly.
-			logInfo(c, "restarted automatically -- running again")
+			log.Infof("restarted automatically -- running again")
 		} else if task.Status == TaskStatusFailed {
-			logInfo(c, "started even though we've already failed. interesting")
+			log.Infof("started even though we've already failed. interesting")
 			return JobTask{}, fmt.Errorf("restarted failed task"), false
 		} else if _, err := updateTask(ds, taskKey, TaskStatusRunning, 1, "", nil); err != nil {
 			return JobTask{}, fmt.Errorf("failed to update map task to running: %s", err), true
@@ -602,7 +602,7 @@ func startTask(c context.Context, ds appwrap.Datastore, taskIntf startTopIntf, t
 	}
 }
 
-func endTask(c context.Context, ds appwrap.Datastore, taskIntf startTopIntf, jobKey *datastore.Key, taskKey *datastore.Key, resultErr error, result interface{}) error {
+func endTask(c context.Context, ds appwrap.Datastore, taskIntf startTopIntf, jobKey *datastore.Key, taskKey *datastore.Key, resultErr error, result interface{}, log appwrap.Logging) error {
 	if resultErr == nil {
 		if task, err := updateTask(ds, taskKey, TaskStatusDone, 0, "", result); err != nil {
 			return fmt.Errorf("Could not update task: %s", err)
@@ -612,10 +612,10 @@ func endTask(c context.Context, ds appwrap.Datastore, taskIntf startTopIntf, job
 	} else {
 		if _, ok := resultErr.(tryAgainError); ok {
 			// wasn't fatal, go for it
-			if retryErr := retryTask(c, ds, taskIntf, jobKey, taskKey); retryErr != nil {
+			if retryErr := retryTask(c, ds, taskIntf, jobKey, taskKey, log); retryErr != nil {
 				return fmt.Errorf("error retrying: %s (task failed due to: %s)", retryErr, resultErr)
 			} else {
-				logInfo(c, "retrying task due to %s", resultErr)
+				log.Infof("retrying task due to %s", resultErr)
 				return nil
 			}
 		}

@@ -23,6 +23,7 @@ import (
 )
 
 type MapreduceTests struct {
+	nullLog appwrap.NullLogger
 }
 
 func (mrt *MapreduceTests) ContextFn(*http.Request) context.Context {

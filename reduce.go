@@ -30,32 +30,32 @@ import (
 	"time"
 )
 
-func reduceMonitorTask(c context.Context, ds appwrap.Datastore, pipeline MapReducePipeline, jobKey *datastore.Key, r *http.Request, timeout time.Duration) int {
+func reduceMonitorTask(c context.Context, ds appwrap.Datastore, pipeline MapReducePipeline, jobKey *datastore.Key, r *http.Request, timeout time.Duration, log appwrap.Logging) int {
 	start := time.Now()
 
-	job, err := waitForStageCompletion(c, ds, pipeline, jobKey, StageReducing, StageDone, timeout)
+	job, err := waitForStageCompletion(c, ds, pipeline, jobKey, StageReducing, StageDone, timeout, log)
 	if err != nil {
-		logCritical(c, "waitForStageCompletion() failed: %S", err)
+		log.Criticalf("waitForStageCompletion() failed: %S", err)
 		return 200
 	} else if job.Stage == StageReducing {
-		logInfo(c, "wait timed out -- returning an error and letting us automatically restart")
+		log.Infof("wait timed out -- returning an error and letting us automatically restart")
 
 		return 500
 	}
 
-	logInfo(c, "reduce complete status: %s", job.Stage)
+	log.Infof("reduce complete status: %s", job.Stage)
 	if job.OnCompleteUrl != "" {
 		successUrl := fmt.Sprintf("%s?status=%s;id=%d", job.OnCompleteUrl, TaskStatusDone, jobKey.IntID())
-		logInfo(c, "posting complete status to url %s", successUrl)
+		log.Infof("posting complete status to url %s", successUrl)
 		pipeline.PostStatus(c, successUrl)
 	}
 
-	logInfo(c, "reduction complete after %s of monitoring ", time.Now().Sub(start))
+	log.Infof("reduction complete after %s of monitoring ", time.Now().Sub(start))
 
 	return 200
 }
 
-func reduceTask(c context.Context, ds appwrap.Datastore, baseUrl string, mr MapReducePipeline, taskKey *datastore.Key, w http.ResponseWriter, r *http.Request) {
+func reduceTask(c context.Context, ds appwrap.Datastore, baseUrl string, mr MapReducePipeline, taskKey *datastore.Key, w http.ResponseWriter, r *http.Request, log appwrap.Logging) {
 	var writer SingleOutputWriter
 	var task JobTask
 	var err error
@@ -67,12 +67,12 @@ func reduceTask(c context.Context, ds appwrap.Datastore, baseUrl string, mr MapR
 	// the task status callback is invoked
 	mr.SetReduceParameters(r.FormValue("json"))
 
-	if task, err, retry = startTask(c, ds, mr, taskKey); err != nil && retry {
-		logCritical(c, "failed updating task to running: %s", err)
+	if task, err, retry = startTask(c, ds, mr, taskKey, log); err != nil && retry {
+		log.Criticalf("failed updating task to running: %s", err)
 		http.Error(w, err.Error(), 500) // this will run us again
 		return
 	} else if err != nil {
-		logCritical(c, "(fatal) failed updating task to running: %s", err)
+		log.Criticalf("(fatal) failed updating task to running: %s", err)
 		http.Error(w, err.Error(), 200) // this will run us again
 		return
 	}
@@ -81,9 +81,9 @@ func reduceTask(c context.Context, ds appwrap.Datastore, baseUrl string, mr MapR
 		if r := recover(); r != nil {
 			stack := make([]byte, 16384)
 			bytes := runtime.Stack(stack, false)
-			logCritical(c, "panic inside of reduce task %s: %s\n%s\n", taskKey.Encode(), r, stack[0:bytes])
+			log.Criticalf("panic inside of reduce task %s: %s\n%s\n", taskKey.Encode(), r, stack[0:bytes])
 
-			if err := retryTask(c, ds, mr, task.Job, taskKey); err != nil {
+			if err := retryTask(c, ds, mr, task.Job, taskKey, log); err != nil {
 				panic(fmt.Errorf("failed to retry task after panic: %s", err))
 			}
 		}
@@ -103,22 +103,22 @@ func reduceTask(c context.Context, ds appwrap.Datastore, baseUrl string, mr MapR
 		json.Unmarshal(shardJson, &shards)
 
 		finalErr = ReduceFunc(c, mr, writer, shards, task.SeparateReduceItems,
-			makeStatusUpdateFunc(c, ds, mr, fmt.Sprintf("%s/reducestatus", baseUrl), taskKey.Encode()))
+			makeStatusUpdateFunc(c, ds, mr, fmt.Sprintf("%s/reducestatus", baseUrl), taskKey.Encode(), log), log)
 	}
 
 	writer.Close(c)
 
-	if err := endTask(c, ds, mr, task.Job, taskKey, finalErr, writer.ToName()); err != nil {
-		logCritical(c, "Could not finish task: %s", err)
+	if err := endTask(c, ds, mr, task.Job, taskKey, finalErr, writer.ToName(), log); err != nil {
+		log.Criticalf("Could not finish task: %s", err)
 		http.Error(w, err.Error(), 500)
 		return
 	}
 
-	logInfo(c, "reducer done after %s", time.Now().Sub(start))
+	log.Infof("reducer done after %s", time.Now().Sub(start))
 }
 
 func ReduceFunc(c context.Context, mr MapReducePipeline, writer SingleOutputWriter, shardNames []string,
-	separateReduceItems bool, statusFunc StatusUpdateFunc) error {
+	separateReduceItems bool, statusFunc StatusUpdateFunc, log appwrap.Logging) error {
 
 	merger := newMerger(mr)
 
@@ -165,11 +165,11 @@ func ReduceFunc(c context.Context, mr MapReducePipeline, writer SingleOutputWrit
 	if first, err := merger.next(); err != nil {
 		return err
 	} else if first == nil {
-		logInfo(c, "No results to process from map")
+		log.Infof("No results to process from map")
 		writer.Close(c)
 		for _, shardName := range shardNames {
 			if err := mr.RemoveIntermediate(c, shardName); err != nil {
-				logError(c, "failed to remove intermediate file: %s", err.Error())
+				log.Errorf("failed to remove intermediate file: %s", err.Error())
 			}
 		}
 
@@ -233,7 +233,7 @@ func ReduceFunc(c context.Context, mr MapReducePipeline, writer SingleOutputWrit
 
 	for _, shardName := range shardNames {
 		if err := mr.RemoveIntermediate(c, shardName); err != nil {
-			logError(c, "failed to remove intermediate file: %s", err.Error())
+			log.Errorf("failed to remove intermediate file: %s", err.Error())
 		}
 	}
 
