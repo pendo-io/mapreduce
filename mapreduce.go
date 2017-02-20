@@ -177,7 +177,7 @@ func Run(c context.Context, ds appwrap.Datastore, job MapReduceJob) (int64, erro
 		}
 	}
 
-	if err := createTasks(ds, jobKey, taskKeys, tasks, StageMapping); err != nil {
+	if err := createTasks(ds, jobKey, taskKeys, tasks, StageMapping, log); err != nil {
 		if _, innerErr := markJobFailed(c, ds, jobKey, log); err != nil {
 			log.Errorf("failed to log job %d as failed: %s", jobKey.IntID(), innerErr)
 		}

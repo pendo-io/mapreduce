@@ -116,10 +116,12 @@ func mapMonitorTask(c context.Context, ds appwrap.Datastore, pipeline MapReduceP
 
 	taskKeys = taskKeys[0:len(tasks)]
 
-	if err := createTasks(ds, jobKey, taskKeys, tasks, StageReducing); err != nil {
+	if err := createTasks(ds, jobKey, taskKeys, tasks, StageReducing, log); err != nil {
 		jobFailed(c, ds, pipeline, jobKey, fmt.Errorf("failed to create reduce tasks: %s", err.Error()), log)
 		return 200
 	}
+
+	log.Infof("created tasks in datastore; adding to task queue now")
 
 	for i := range tasks {
 		if err := pipeline.PostTask(c, tasks[i].Url, job.JsonParameters); err != nil {
@@ -127,6 +129,8 @@ func mapMonitorTask(c context.Context, ds appwrap.Datastore, pipeline MapReduceP
 			return 200
 		}
 	}
+
+	log.Infof("tasks queue up; starting reduce monitor")
 
 	if err := pipeline.PostStatus(c, fmt.Sprintf("%s/reduce-monitor?jobKey=%s", job.UrlPrefix, jobKey.Encode())); err != nil {
 		jobFailed(c, ds, pipeline, jobKey, fmt.Errorf("failed to start reduce monitor: %s", err.Error()), log)

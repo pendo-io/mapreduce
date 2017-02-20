@@ -125,7 +125,7 @@ func createJob(ds appwrap.Datastore, urlPrefix string, writerNames []string, onC
 	return ds.Put(key, &job)
 }
 
-func createTasks(ds appwrap.Datastore, jobKey *datastore.Key, taskKeys []*datastore.Key, tasks []JobTask, newStage JobStage) error {
+func createTasks(ds appwrap.Datastore, jobKey *datastore.Key, taskKeys []*datastore.Key, tasks []JobTask, newStage JobStage, log appwrap.Logging) error {
 	now := time.Now()
 	firstId := taskKeys[0].IntID()
 	for i := range tasks {
@@ -138,6 +138,8 @@ func createTasks(ds appwrap.Datastore, jobKey *datastore.Key, taskKeys []*datast
 	}
 
 	putSize := 64
+
+	log.Infof("creating %d %s tasks", len(tasks), tasks[0].Type)
 
 	i := 0
 	for i < len(tasks) {
@@ -152,6 +154,8 @@ func createTasks(ds appwrap.Datastore, jobKey *datastore.Key, taskKeys []*datast
 					putSize /= 2
 				}
 
+				log.Infof("shrinkning putSize to %d because of %s", putSize, err)
+
 				return err
 			}
 
@@ -159,9 +163,12 @@ func createTasks(ds appwrap.Datastore, jobKey *datastore.Key, taskKeys []*datast
 
 			return nil
 		}, mrBackOff()); err != nil {
+			log.Errorf("hit backoff error %s", err)
 			return err
 		}
 	}
+
+	log.Infof("tasks created; first is %s", taskKeys[0])
 
 	return runInTransaction(ds,
 		func(ds appwrap.Datastore) error {
