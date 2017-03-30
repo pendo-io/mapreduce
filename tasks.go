@@ -540,29 +540,46 @@ func doWaitForStageCompletion(c context.Context, ds appwrap.Datastore, taskIntf 
 	}
 
 	start := time.Now()
+	backOffTimer := mrBackOff()
 
 	for time.Now().Sub(start) < timeout {
-		stageChanged, newJob, err := checkCompletion(ds, jobKey, taskKeys, currentStage, nextStage, log)
-		if err == errMonitorJobConflict {
-			log.Errorf("monitor job conflict detected")
-			return JobInfo{}, err
-		} else if !stageChanged {
-			// this ignores errors.. it should instead sleep a bit longer and maybe even resubmit the
-			// monitor job
 
-			if err != nil {
-				log.Errorf("error getting map task complete status: %s", err.Error())
+		var newJob JobInfo
+
+		backOffTimer.Reset()
+
+		for {
+			if stateChanged, nj, err := checkCompletion(ds, jobKey, taskKeys, currentStage, nextStage, log); err == errMonitorJobConflict {
+				log.Errorf("monitor job conflict detected")
+				return JobInfo{}, err
+			} else if !stateChanged {
+				if err != nil {
+					log.Errorf("error getting map task complete status: %s", err.Error())
+
+					if d := backOffTimer.NextBackOff(); d == backoff.Stop {
+						log.Errorf("failed to get map task complete status after multiple retries: %s", err)
+						return job, err
+					} else {
+						time.Sleep(d)
+					}
+				} else {
+					backOffTimer.Reset()
+					time.Sleep(delay)
+				}
+			} else if err != nil {
+				// this really shouldn't happen. errors are supposed to be reported as no state change
+				err := fmt.Errorf("error getting map task complete status even though stage was changed!!: %s", err.Error())
+				return job, err
+			} else {
+				newJob = nj
+				break
 			}
+		}
 
-			time.Sleep(delay)
-		} else if newJob.Stage == StageFailed {
+		if newJob.Stage == StageFailed {
 			// we found a failed task; the job has been marked as failed; notify the caller and exit
-			jobFailed(c, ds, taskIntf, jobKey, err, log)
+			jobFailed(c, ds, taskIntf, jobKey, fmt.Errorf("failed task"), log)
 			return job, fmt.Errorf("failed task")
-		} else if err != nil {
-			// this really shouldn't happen.
-			err := fmt.Errorf("error getting map task complete status even though stage was changed!!: %s", err.Error())
-			return job, err
 		} else {
 			job = newJob
 			break
@@ -579,12 +596,16 @@ type startTopIntf interface {
 	TaskStatusChange
 }
 
+func retryError(err error) bool {
+	return (err != datastore.ErrNoSuchEntity)
+}
+
 // returns job if err is nil, err, and a boolean saying if the task should be restarted (true/false)
 func startTask(c context.Context, ds appwrap.Datastore, taskIntf startTopIntf, taskKey *datastore.Key, log appwrap.Logging) (JobTask, error, bool) {
 	if task, err := getTask(ds, taskKey); err != nil {
-		return JobTask{}, fmt.Errorf("failed to get task status: %s", err), true
+		return JobTask{}, fmt.Errorf("failed to get task status: %s", err), retryError(err)
 	} else if job, err := getJob(ds, task.Job); err != nil {
-		return JobTask{}, fmt.Errorf("failed to get job: %s", err), true
+		return JobTask{}, fmt.Errorf("failed to get job: %s", err), retryError(err)
 	} else if task.Retries > job.RetryCount {
 		// we've failed
 		if _, err := updateTask(ds, taskKey, TaskStatusFailed, 0, "maxium retries exceeeded", nil); err != nil {
