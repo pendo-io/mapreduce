@@ -27,12 +27,12 @@ type taskInterfaceMock struct {
 	mock.Mock
 }
 
-func (mock *taskInterfaceMock) PostTask(c context.Context, fullUrl string, jsonParameters string) error {
+func (mock *taskInterfaceMock) PostTask(c context.Context, fullUrl string, jsonParameters string, log appwrap.Logging) error {
 	rargs := mock.Called(c, fullUrl, jsonParameters)
 	return rargs.Error(0)
 }
 
-func (mock *taskInterfaceMock) PostStatus(c context.Context, fullUrl string) error {
+func (mock *taskInterfaceMock) PostStatus(c context.Context, fullUrl string, log appwrap.Logging) error {
 	rargs := mock.Called(c, fullUrl)
 	return rargs.Error(0)
 }
@@ -62,7 +62,7 @@ func (mrt *MapreduceTests) TestJobStageComplete(c *ck.C) {
 		tasks[i].Type = TaskTypeMap
 	}
 
-	err = createTasks(ds, jobKey, taskKeys, tasks, StageMapping)
+	err = createTasks(ds, jobKey, taskKeys, tasks, StageMapping, mrt.nullLog)
 	c.Assert(err, ck.IsNil)
 	checkStage(StageMapping)
 
@@ -111,7 +111,7 @@ func (mrt *MapreduceTests) TestJobStageComplete(c *ck.C) {
 		Done:   jobKey,
 		Type:   TaskTypeReduce,
 	}
-	err = createTasks(ds, jobKey, reduceKeys, reduceTasks, StageReducing)
+	err = createTasks(ds, jobKey, reduceKeys, reduceTasks, StageReducing, mrt.nullLog)
 	c.Assert(err, ck.IsNil)
 
 	// this uses an index query, which is eventually consistent
@@ -142,7 +142,7 @@ func (mrt *MapreduceTests) TestWaitForStageCompletion(c *ck.C) {
 	c.Assert(err, ck.IsNil)
 	c.Assert(job.UrlPrefix, ck.Equals, "foo")
 
-	taskMock.On("PostStatus", ctx, mock.Anything).Return(nil).Once()
+	taskMock.On("PostStatus", ctx, mock.Anything, mrt.nullLog).Return(nil).Once()
 
 	job, err = doWaitForStageCompletion(ctx, ds, taskMock, jobKey, StageMapping, StageReducing, 1*time.Millisecond,
 		func(ds appwrap.Datastore, jobKey *datastore.Key, tasks []*datastore.Key, expectedStage, nextStage JobStage, log appwrap.Logging) (stageChanged bool, job JobInfo, finalErr error) {

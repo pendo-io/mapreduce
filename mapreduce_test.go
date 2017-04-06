@@ -47,7 +47,7 @@ type SimpleTasks struct {
 	group   sync.WaitGroup
 }
 
-func (st *SimpleTasks) PostTask(c context.Context, reqUrl string, params string) error {
+func (st *SimpleTasks) PostTask(c context.Context, reqUrl string, params string, log appwrap.Logging) error {
 	if strings.HasPrefix(reqUrl, "/done") {
 		st.done <- reqUrl
 		return nil
@@ -81,8 +81,8 @@ func (st *SimpleTasks) PostTask(c context.Context, reqUrl string, params string)
 	return nil
 }
 
-func (st *SimpleTasks) PostStatus(c context.Context, url string) error {
-	return st.PostTask(c, url, "")
+func (st *SimpleTasks) PostStatus(c context.Context, url string, log appwrap.Logging) error {
+	return st.PostTask(c, url, "", log)
 }
 
 func (st *SimpleTasks) gather() {

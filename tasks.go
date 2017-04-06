@@ -84,8 +84,8 @@ type JobInfo struct {
 // TaskInterface defines how the map and reduce tasks and controlled, and how they report
 // their status.
 type TaskInterface interface {
-	PostTask(c context.Context, fullUrl string, jsonParameters string) error
-	PostStatus(c context.Context, fullUrl string) error
+	PostTask(c context.Context, fullUrl string, jsonParameters string, log appwrap.Logging) error
+	PostStatus(c context.Context, fullUrl string, log appwrap.Logging) error
 }
 
 type TaskType string
@@ -492,7 +492,7 @@ func retryTask(c context.Context, ds appwrap.Datastore, taskIntf TaskInterface, 
 		task.Status = TaskStatusPending
 		if _, err := ds.Put(taskKey, &task); err != nil {
 			return fmt.Errorf("putting task: %s", err)
-		} else if err := taskIntf.PostTask(c, task.Url, job.JsonParameters); err != nil {
+		} else if err := taskIntf.PostTask(c, task.Url, job.JsonParameters, log); err != nil {
 			return fmt.Errorf("enqueuing task: %s", err)
 		}
 
@@ -512,7 +512,7 @@ func jobFailed(c context.Context, ds appwrap.Datastore, taskIntf TaskInterface, 
 
 	if prevJob.OnCompleteUrl != "" {
 		taskIntf.PostStatus(c, fmt.Sprintf("%s?status=error;error=%s;id=%d", prevJob.OnCompleteUrl,
-			url.QueryEscape(err.Error()), jobKey.IntID()))
+			url.QueryEscape(err.Error()), jobKey.IntID()), log)
 	}
 
 	return

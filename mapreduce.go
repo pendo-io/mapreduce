@@ -185,7 +185,7 @@ func Run(c context.Context, ds appwrap.Datastore, job MapReduceJob) (int64, erro
 	}
 
 	for i := range tasks {
-		if err := job.PostTask(c, tasks[i].Url, job.JobParameters); err != nil {
+		if err := job.PostTask(c, tasks[i].Url, job.JobParameters, log); err != nil {
 			if _, innerErr := markJobFailed(c, ds, jobKey, log); err != nil {
 				log.Errorf("failed to log job %d as failed: %s", jobKey.IntID(), innerErr)
 			}
@@ -193,7 +193,7 @@ func Run(c context.Context, ds appwrap.Datastore, job MapReduceJob) (int64, erro
 		}
 	}
 
-	if err := job.PostStatus(c, fmt.Sprintf("%s/map-monitor?jobKey=%s", job.UrlPrefix, jobKey.Encode())); err != nil {
+	if err := job.PostStatus(c, fmt.Sprintf("%s/map-monitor?jobKey=%s", job.UrlPrefix, jobKey.Encode()), log); err != nil {
 		log.Criticalf("failed to start map monitor task: %s", err)
 	}
 

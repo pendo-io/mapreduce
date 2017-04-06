@@ -47,7 +47,7 @@ func reduceMonitorTask(c context.Context, ds appwrap.Datastore, pipeline MapRedu
 	if job.OnCompleteUrl != "" {
 		successUrl := fmt.Sprintf("%s?status=%s;id=%d", job.OnCompleteUrl, TaskStatusDone, jobKey.IntID())
 		log.Infof("posting complete status to url %s", successUrl)
-		pipeline.PostStatus(c, successUrl)
+		pipeline.PostStatus(c, successUrl, log)
 	}
 
 	log.Infof("reduction complete after %s of monitoring ", time.Now().Sub(start))
