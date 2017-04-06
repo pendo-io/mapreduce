@@ -157,6 +157,8 @@ func createTasks(ds appwrap.Datastore, jobKey *datastore.Key, taskKeys []*datast
 				log.Infof("shrinkning putSize to %d because of %s", putSize, err)
 
 				return err
+			} else {
+				log.Infof("created tasks for %d:%d", i, last)
 			}
 
 			i = last
@@ -168,7 +170,7 @@ func createTasks(ds appwrap.Datastore, jobKey *datastore.Key, taskKeys []*datast
 		}
 	}
 
-	log.Infof("tasks created; first is %s", taskKeys[0])
+	log.Infof("%d tasks created; first is %s", i, taskKeys[0])
 
 	return runInTransaction(ds,
 		func(ds appwrap.Datastore) error {
