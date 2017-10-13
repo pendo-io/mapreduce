@@ -19,14 +19,15 @@ import (
 	"compress/zlib"
 	"encoding/json"
 	"fmt"
-	"github.com/pendo-io/appwrap"
-	"golang.org/x/net/context"
-	"google.golang.org/appengine/datastore"
 	"net/http"
 	"net/url"
 	"runtime"
 	"strconv"
 	"time"
+
+	"github.com/pendo-io/appwrap"
+	"golang.org/x/net/context"
+	"google.golang.org/appengine/datastore"
 )
 
 func mapMonitorTask(c context.Context, ds appwrap.Datastore, pipeline MapReducePipeline, jobKey *datastore.Key, r *http.Request, timeout time.Duration, log appwrap.Logging) int {
@@ -286,20 +287,23 @@ func mapperFunc(c context.Context, mr MapReducePipeline, reader SingleInputReade
 		spills = append(spills, spill)
 	}
 
-	finalNames := make(map[string]int)
-	for try := 0; try < 5; try++ {
+	const maxMergeSpillsRetries = 5
+	finalNames, finalErr := make(map[string]int), error(nil)
+	for try := 0; try < maxMergeSpillsRetries; try++ {
 		if names, err := mergeSpills(c, mr, mr, spills, log); err != nil {
-			log.Infof("spill merge failed try %d: %s", try, err)
+			log.Warningf("spill merge failed try %d/%d: %s", try+1, maxMergeSpillsRetries, err)
+			finalErr = err
 		} else {
 			for shard, name := range names {
 				finalNames[name] = shard
 			}
+			finalErr = nil
 			break
 		}
 	}
 
-	if err != nil {
-		return nil, tryAgainError{err}
+	if finalErr != nil {
+		return nil, tryAgainError{finalErr}
 	}
 
 	log.Infof("finalNames: %#v", finalNames)
