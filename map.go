@@ -236,7 +236,7 @@ func mapperFunc(c context.Context, mr MapReducePipeline, reader SingleInputReade
 			count++
 		}
 
-		if size > 4*1024*1024 {
+		if size > 32*1024*1024 {
 			if spill, err := writeSpill(c, mr, dataSets); err != nil {
 				return nil, tryAgainError{err}
 			} else {
