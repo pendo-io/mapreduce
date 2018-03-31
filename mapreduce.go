@@ -285,3 +285,17 @@ type IgnoreTaskStatusChange struct{}
 
 func (e *IgnoreTaskStatusChange) Status(jobId int64, task JobTask) {
 }
+
+// tryAgainIfNonFatal will take a non-nil error and wrap it in a tryAgainError
+// if it doesn't match a FatalError.
+func tryAgainIfNonFatal(err error) error {
+	if err != nil {
+		if _, ok := err.(FatalError); ok {
+			err = err.(FatalError).Err
+		} else {
+			err = tryAgainError{err}
+		}
+		return err
+	}
+	return nil
+}

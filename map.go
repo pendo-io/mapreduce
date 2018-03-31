@@ -218,13 +218,7 @@ func mapperFunc(c context.Context, mr MapReducePipeline, reader SingleInputReade
 		itemList, err := mr.Map(item, statusFunc)
 
 		if err != nil {
-			if _, ok := err.(FatalError); ok {
-				err = err.(FatalError).Err
-			} else {
-				err = tryAgainError{err}
-			}
-
-			return nil, err
+			return nil, tryAgainIfNonFatal(err)
 		}
 
 		for _, mappedItem := range itemList {
@@ -256,24 +250,12 @@ func mapperFunc(c context.Context, mr MapReducePipeline, reader SingleInputReade
 	reader.Close()
 
 	if err != nil {
-		if _, ok := err.(FatalError); ok {
-			err = err.(FatalError).Err
-		} else {
-			err = tryAgainError{err}
-		}
-
-		return nil, err
+		return nil, tryAgainIfNonFatal(err)
 	}
 
 	itemList, err := mr.MapComplete(statusFunc)
 	if err != nil {
-		if _, ok := err.(FatalError); ok {
-			err = err.(FatalError).Err
-		} else {
-			err = tryAgainError{err}
-		}
-
-		return nil, err
+		return nil, tryAgainIfNonFatal(err)
 	}
 
 	for _, item := range itemList {

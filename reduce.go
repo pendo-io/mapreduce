@@ -192,12 +192,7 @@ func ReduceFunc(c context.Context, mr MapReducePipeline, writer SingleOutputWrit
 		}
 
 		if result, err := mr.Reduce(key, values, statusFunc); err != nil {
-			if _, ok := err.(FatalError); ok {
-				err = err.(FatalError).Err
-			} else {
-				err = tryAgainError{err}
-			}
-			return err
+			return tryAgainIfNonFatal(err)
 		} else if result != nil {
 			if err := writer.Write(result); err != nil {
 				return err
@@ -210,12 +205,7 @@ func ReduceFunc(c context.Context, mr MapReducePipeline, writer SingleOutputWrit
 	}
 
 	if result, err := mr.Reduce(key, values, statusFunc); err != nil {
-		if _, ok := err.(FatalError); ok {
-			err = err.(FatalError).Err
-		} else {
-			err = tryAgainError{err}
-		}
-		return err
+		return tryAgainIfNonFatal(err)
 	} else if result != nil {
 		if err := writer.Write(result); err != nil {
 			return tryAgainError{err}
