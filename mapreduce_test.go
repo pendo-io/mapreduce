@@ -16,15 +16,16 @@ package mapreduce
 
 import (
 	"fmt"
-	"github.com/pendo-io/appwrap"
-	"golang.org/x/net/context"
-	ck "gopkg.in/check.v1"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
 	"sync"
+
+	"github.com/pendo-io/appwrap"
+	"golang.org/x/net/context"
+	ck "gopkg.in/check.v1"
 )
 
 type testUniqueWordCount struct {

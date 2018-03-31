@@ -15,12 +15,13 @@
 package mapreduce
 
 import (
+	"time"
+
 	"github.com/pendo-io/appwrap"
 	"github.com/stretchr/testify/mock"
 	"golang.org/x/net/context"
 	"google.golang.org/appengine/datastore"
 	ck "gopkg.in/check.v1"
-	"time"
 )
 
 type taskInterfaceMock struct {

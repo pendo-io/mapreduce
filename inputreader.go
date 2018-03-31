@@ -17,9 +17,10 @@ package mapreduce
 import (
 	"bufio"
 	"fmt"
-	"golang.org/x/net/context"
 	"io"
 	"os"
+
+	"golang.org/x/net/context"
 )
 
 // InputReader is responsible for providing unique names for each of the input

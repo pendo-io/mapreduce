@@ -19,10 +19,11 @@ import (
 	"compress/gzip"
 	"encoding/binary"
 	"fmt"
-	"github.com/pendo-io/appwrap"
-	"golang.org/x/net/context"
 	"io"
 	"sort"
+
+	"github.com/pendo-io/appwrap"
+	"golang.org/x/net/context"
 )
 
 type spillStruct struct {

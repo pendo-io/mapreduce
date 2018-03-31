@@ -17,13 +17,14 @@ package mapreduce
 
 import (
 	"fmt"
+	"net/http"
+	"strings"
+	"time"
+
 	"github.com/pendo-io/appwrap"
 	"golang.org/x/net/context"
 	"google.golang.org/appengine"
 	"google.golang.org/appengine/datastore"
-	"net/http"
-	"strings"
-	"time"
 )
 
 // MappedData items are key/value pairs returned from the Map stage. The items are rearranged

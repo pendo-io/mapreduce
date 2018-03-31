@@ -19,15 +19,16 @@ import (
 	"compress/zlib"
 	"encoding/json"
 	"fmt"
-	"github.com/pendo-io/appwrap"
-	"golang.org/x/net/context"
-	"google.golang.org/appengine/datastore"
 	"io"
 	"io/ioutil"
 	"net/http"
 	"runtime"
 	"sync"
 	"time"
+
+	"github.com/pendo-io/appwrap"
+	"golang.org/x/net/context"
+	"google.golang.org/appengine/datastore"
 )
 
 func reduceMonitorTask(c context.Context, ds appwrap.Datastore, pipeline MapReducePipeline, jobKey *datastore.Key, r *http.Request, timeout time.Duration, log appwrap.Logging) int {
