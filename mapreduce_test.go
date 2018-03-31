@@ -162,7 +162,7 @@ func (mrt *MapreduceTests) TestWordCount(c *ck.C) {
 	job := mrt.setup(&u, &u.SimpleTasks)
 	job.SeparateReduceItems = true
 	defer u.SimpleTasks.gather()
-	ds := appwrap.NewLocalDatastore()
+	ds := appwrap.NewLocalDatastore(false)
 
 	_, err := Run(appwrap.StubContext(), ds, job)
 	c.Assert(err, ck.Equals, nil)
@@ -192,7 +192,7 @@ func (mrt *MapreduceTests) TestMapPanic(c *ck.C) {
 	u := testMapPanic{}
 	job := mrt.setup(&u, &u.SimpleTasks)
 	defer u.SimpleTasks.gather()
-	ds := appwrap.NewLocalDatastore()
+	ds := appwrap.NewLocalDatastore(false)
 
 	_, err := Run(appwrap.StubContext(), ds, job)
 	c.Check(err, ck.Equals, nil)
@@ -235,7 +235,7 @@ func (mrt *MapreduceTests) TestMapError(c *ck.C) {
 	u := testMapError{}
 	job := mrt.setup(&u, &u.SimpleTasks)
 	defer u.SimpleTasks.gather()
-	ds := appwrap.NewLocalDatastore()
+	ds := appwrap.NewLocalDatastore(false)
 
 	_, err := Run(appwrap.StubContext(), ds, job)
 	c.Check(err, ck.Equals, nil)
@@ -257,7 +257,7 @@ func (mrt *MapreduceTests) TestMapFatal(c *ck.C) {
 	u := testMapError{fatal: true}
 	job := mrt.setup(&u, &u.SimpleTasks)
 	defer u.SimpleTasks.gather()
-	ds := appwrap.NewLocalDatastore()
+	ds := appwrap.NewLocalDatastore(false)
 
 	_, err := Run(appwrap.StubContext(), ds, job)
 	c.Check(err, ck.Equals, nil)
@@ -291,7 +291,7 @@ func (mrt *MapreduceTests) TestReducePanic(c *ck.C) {
 	u := testReducePanic{}
 	job := mrt.setup(&u, &u.SimpleTasks)
 	defer u.SimpleTasks.gather()
-	ds := appwrap.NewLocalDatastore()
+	ds := appwrap.NewLocalDatastore(false)
 
 	_, err := Run(appwrap.StubContext(), ds, job)
 	c.Check(err, ck.Equals, nil)
@@ -334,7 +334,7 @@ func (mrt *MapreduceTests) TestReduceError(c *ck.C) {
 	u := testReduceError{}
 	job := mrt.setup(&u, &u.SimpleTasks)
 	defer u.SimpleTasks.gather()
-	ds := appwrap.NewLocalDatastore()
+	ds := appwrap.NewLocalDatastore(false)
 
 	_, err := Run(appwrap.StubContext(), ds, job)
 	c.Check(err, ck.Equals, nil)
@@ -365,7 +365,7 @@ func (mrt *MapreduceTests) TestReduceFatal(c *ck.C) {
 	return
 	u := testReduceError{fatal: true}
 	job := mrt.setup(&u, &u.SimpleTasks)
-	ds := appwrap.NewLocalDatastore()
+	ds := appwrap.NewLocalDatastore(false)
 	defer u.SimpleTasks.gather()
 
 	_, err := Run(appwrap.StubContext(), ds, job)
