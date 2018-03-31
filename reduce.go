@@ -213,7 +213,7 @@ func ReduceFunc(c context.Context, mr MapReducePipeline, writer SingleOutputWrit
 	}
 
 	if results, err := mr.ReduceComplete(statusFunc); err != nil {
-		return err
+		return tryAgainIfNonFatal(err)
 	} else {
 		for _, result := range results {
 			if err := writer.Write(result); err != nil {
