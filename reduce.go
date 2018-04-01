@@ -19,15 +19,16 @@ import (
 	"compress/zlib"
 	"encoding/json"
 	"fmt"
-	"github.com/pendo-io/appwrap"
-	"golang.org/x/net/context"
-	"google.golang.org/appengine/datastore"
 	"io"
 	"io/ioutil"
 	"net/http"
 	"runtime"
 	"sync"
 	"time"
+
+	"github.com/pendo-io/appwrap"
+	"golang.org/x/net/context"
+	"google.golang.org/appengine/datastore"
 )
 
 func reduceMonitorTask(c context.Context, ds appwrap.Datastore, pipeline MapReducePipeline, jobKey *datastore.Key, r *http.Request, timeout time.Duration, log appwrap.Logging) int {
@@ -191,12 +192,7 @@ func ReduceFunc(c context.Context, mr MapReducePipeline, writer SingleOutputWrit
 		}
 
 		if result, err := mr.Reduce(key, values, statusFunc); err != nil {
-			if _, ok := err.(FatalError); ok {
-				err = err.(FatalError).Err
-			} else {
-				err = tryAgainError{err}
-			}
-			return err
+			return tryAgainIfNonFatal(err)
 		} else if result != nil {
 			if err := writer.Write(result); err != nil {
 				return err
@@ -209,12 +205,7 @@ func ReduceFunc(c context.Context, mr MapReducePipeline, writer SingleOutputWrit
 	}
 
 	if result, err := mr.Reduce(key, values, statusFunc); err != nil {
-		if _, ok := err.(FatalError); ok {
-			err = err.(FatalError).Err
-		} else {
-			err = tryAgainError{err}
-		}
-		return err
+		return tryAgainIfNonFatal(err)
 	} else if result != nil {
 		if err := writer.Write(result); err != nil {
 			return tryAgainError{err}
@@ -222,7 +213,7 @@ func ReduceFunc(c context.Context, mr MapReducePipeline, writer SingleOutputWrit
 	}
 
 	if results, err := mr.ReduceComplete(statusFunc); err != nil {
-		return err
+		return tryAgainIfNonFatal(err)
 	} else {
 		for _, result := range results {
 			if err := writer.Write(result); err != nil {

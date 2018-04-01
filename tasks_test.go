@@ -15,12 +15,13 @@
 package mapreduce
 
 import (
+	"time"
+
 	"github.com/pendo-io/appwrap"
 	"github.com/stretchr/testify/mock"
 	"golang.org/x/net/context"
 	"google.golang.org/appengine/datastore"
 	ck "gopkg.in/check.v1"
-	"time"
 )
 
 type taskInterfaceMock struct {
@@ -33,13 +34,13 @@ func (mock *taskInterfaceMock) PostTask(c context.Context, fullUrl string, jsonP
 }
 
 func (mock *taskInterfaceMock) PostStatus(c context.Context, fullUrl string, log appwrap.Logging) error {
-	rargs := mock.Called(c, fullUrl)
+	rargs := mock.Called(c, fullUrl, log)
 	return rargs.Error(0)
 }
 
 func (mrt *MapreduceTests) TestJobStageComplete(c *ck.C) {
 	c.Skip("YOU SHALL NOT PASS! (Because the dual monitor patch broke it)")
-	ds := appwrap.NewLocalDatastore()
+	ds := appwrap.NewLocalDatastore(false)
 	ctx := appwrap.StubContext()
 
 	jobKey, err := createJob(ds, "prefix", []string{}, "complete", false, "", 5)
@@ -122,7 +123,7 @@ func (mrt *MapreduceTests) TestJobStageComplete(c *ck.C) {
 }
 
 func (mrt *MapreduceTests) TestWaitForStageCompletion(c *ck.C) {
-	ds := appwrap.NewLocalDatastore()
+	ds := appwrap.NewLocalDatastore(false)
 	ctx := appwrap.StubContext()
 	jobKey, err := createJob(ds, "prefix", []string{}, "complete", false, "", 5)
 	c.Assert(err, ck.IsNil)
@@ -147,7 +148,7 @@ func (mrt *MapreduceTests) TestWaitForStageCompletion(c *ck.C) {
 	job, err = doWaitForStageCompletion(ctx, ds, taskMock, jobKey, StageMapping, StageReducing, 1*time.Millisecond,
 		func(ds appwrap.Datastore, jobKey *datastore.Key, tasks []*datastore.Key, expectedStage, nextStage JobStage, log appwrap.Logging) (stageChanged bool, job JobInfo, finalErr error) {
 			// this is what happens when a task fails
-			return true, JobInfo{Stage: StageFailed}, taskError{"some failure"}
+			return true, JobInfo{Stage: StageFailed}, nil
 		},
 		time.Minute, mrt.nullLog)
 

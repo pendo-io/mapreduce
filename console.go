@@ -1,15 +1,16 @@
 package mapreduce
 
 import (
-	"github.com/pendo-io/appwrap"
-	"google.golang.org/appengine"
-	"google.golang.org/appengine/datastore"
-	"google.golang.org/appengine/log"
 	"html/template"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/pendo-io/appwrap"
+	"google.golang.org/appengine"
+	"google.golang.org/appengine/datastore"
+	"google.golang.org/appengine/log"
 )
 
 const main = `<html><head><title>MapReduce Console</title><style>

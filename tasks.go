@@ -17,13 +17,14 @@ package mapreduce
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
+	"time"
+
 	"github.com/cenkalti/backoff"
 	"github.com/pendo-io/appwrap"
 	"golang.org/x/net/context"
 	"google.golang.org/appengine/datastore"
 	"google.golang.org/appengine/taskqueue"
-	"net/url"
-	"time"
 )
 
 type TaskStatus string

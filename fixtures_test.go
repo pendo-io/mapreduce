@@ -15,11 +15,12 @@
 package mapreduce
 
 import (
+	"net/http"
+	"testing"
+
 	"github.com/pendo-io/appwrap"
 	"golang.org/x/net/context"
 	"gopkg.in/check.v1"
-	"net/http"
-	"testing"
 )
 
 type MapreduceTests struct {

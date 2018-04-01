@@ -17,13 +17,14 @@ package mapreduce
 
 import (
 	"fmt"
+	"net/http"
+	"strings"
+	"time"
+
 	"github.com/pendo-io/appwrap"
 	"golang.org/x/net/context"
 	"google.golang.org/appengine"
 	"google.golang.org/appengine/datastore"
-	"net/http"
-	"strings"
-	"time"
 )
 
 // MappedData items are key/value pairs returned from the Map stage. The items are rearranged
@@ -283,4 +284,18 @@ func makeStatusUpdateFunc(c context.Context, ds appwrap.Datastore, pipeline MapR
 type IgnoreTaskStatusChange struct{}
 
 func (e *IgnoreTaskStatusChange) Status(jobId int64, task JobTask) {
+}
+
+// tryAgainIfNonFatal will take a non-nil error and wrap it in a tryAgainError
+// if it doesn't match a FatalError.
+func tryAgainIfNonFatal(err error) error {
+	if err != nil {
+		if _, ok := err.(FatalError); ok {
+			err = err.(FatalError).Err
+		} else {
+			err = tryAgainError{err}
+		}
+		return err
+	}
+	return nil
 }

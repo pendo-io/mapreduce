@@ -18,9 +18,10 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
-	"golang.org/x/net/context"
 	"io"
 	"os"
+
+	"golang.org/x/net/context"
 )
 
 type KeyValueHandler interface {

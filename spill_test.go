@@ -16,6 +16,7 @@ package mapreduce
 
 import (
 	"fmt"
+
 	ck "gopkg.in/check.v1"
 )
 
