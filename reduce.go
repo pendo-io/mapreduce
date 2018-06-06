@@ -36,22 +36,22 @@ func reduceMonitorTask(c context.Context, ds appwrap.Datastore, pipeline MapRedu
 
 	job, err := waitForStageCompletion(c, ds, pipeline, jobKey, StageReducing, StageDone, timeout, log)
 	if err != nil {
-		log.Criticalf("waitForStageCompletion() failed: %S", err)
+		log.Criticalf("waitForStageCompletion() failed for job %d: %s", jobKey.IntID(), err)
 		return 200
 	} else if job.Stage == StageReducing {
-		log.Infof("wait timed out -- returning an error and letting us automatically restart")
+		log.Infof("wait timed out for job %d -- returning an error and letting us automatically restart", jobKey.IntID())
 
 		return 500
 	}
 
-	log.Infof("reduce complete status: %s", job.Stage)
+	log.Infof("reduce complete status for job %d: %s", jobKey.IntID(), job.Stage)
 	if job.OnCompleteUrl != "" {
 		successUrl := fmt.Sprintf("%s?status=%s;id=%d", job.OnCompleteUrl, TaskStatusDone, jobKey.IntID())
 		log.Infof("posting complete status to url %s", successUrl)
 		pipeline.PostStatus(c, successUrl, log)
 	}
 
-	log.Infof("reduction complete after %s of monitoring ", time.Now().Sub(start))
+	log.Infof("reduction complete for job %d after %s of monitoring ", jobKey.IntID(), time.Now().Sub(start))
 
 	return 200
 }
