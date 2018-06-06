@@ -278,6 +278,7 @@ func jobStageComplete(ds appwrap.Datastore, jobKey *datastore.Key, taskKeys []*d
 		if job.Stage != expectedStage {
 			// we're not where we expected, so advancing this isn't our responsibility
 			stageChanged = false
+			log.Errorf("monitor job conflict detected: could not transition '%s' -> '%s' as job was in stage '%s'", expectedStage, nextStage, job.Stage)
 			return errMonitorJobConflict
 		}
 
@@ -553,7 +554,6 @@ func doWaitForStageCompletion(c context.Context, ds appwrap.Datastore, taskIntf 
 
 		for {
 			if stateChanged, nj, err := checkCompletion(ds, jobKey, taskKeys, currentStage, nextStage, log); err == errMonitorJobConflict {
-				log.Errorf("monitor job conflict detected")
 				return JobInfo{}, err
 			} else if !stateChanged {
 				if err != nil {
