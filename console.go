@@ -13,28 +13,50 @@ import (
 	"google.golang.org/appengine/log"
 )
 
-const main = `<html><head><title>MapReduce Console</title><style>
+const main = `<html><head><title>MapReduce Console</title>
+{{$css}}
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/1.4.2/jquery.min.js"></script>
+<script type="text/javascript" id="js">
+{{$js}}
 
-table,td,th {
-	border: 1px solid black;
-}
-</style>
+$(function() {
+        // call the tablesorter plugin
+        $("table").tablesorter({
+                headers: { 0: { sorter: 'integer' },
+                           //1: { sorter: false },
+                           2: { sorter: false },
+                           3: { sorter: 'isoDatetime' },
+                           4: { sorter: 'isoDatetime' },
+                           5: { sorter: 'duration' },
+                           6: { sorter: false },
+                },
+                sortList: [[5,0]],
+                //debug: true,
+                cancelSelection: false,
+                widgets: ['zebra','filter'],
+                widthFixed: true,
+        });
+});
+</script>
 </head>
+<body>
 <h1>MapReduce Console</h1>
 
 <h2>Jobs</h2>
 
 <table>
+<thead>
 <tr>
     <th align="center">Id</th>
-    <th align="center">Url</th>
-    <th align="center">Stage</th>
+    <th align="center">Url<br /><input onchange='$(this).parents("table").trigger("applyWidgets")'></input></th>
+    <th align="center">Stage<br/><select multiple onchange='$(this).parents("table").trigger("applyWidgets")'></select></th>
     <th align="center">Start Time</th>
     <th align="center">Updated Time</th>
     <th align="center">Duration</th>
     <th></td>
 </tr>
-
+</thead>
+<tbody>
 {{range $index, $job := .Jobs}}
 <tr>
     {{$key := index $.Keys $index}} 
@@ -50,34 +72,57 @@ table,td,th {
     <td><button onclick="location.href='delete?id={{$id}}'">Delete</button></td>
 </tr>
 {{end}}
-
+</tbody>
 </table>
+</body>
+</html>
 
 `
 
-const jobPage = `<html><head><title>MapReduce Console</title><style>
-
-table,td,th {
-	border: 1px solid black;
-}
-</style>
+const jobPage = `<html><head><title>MapReduce Console</title>
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/1.4.2/jquery.min.js"></script>
+<script type="text/javascript" id="js">
+{{$css}}
+{{$js}}
+$(function() {
+        // call the tablesorter plugin
+        $("table").tablesorter({
+                headers: { 0: { sorter: 'integer' },
+                           1: { sorter: false },
+                           2: { sorter: false },
+			   3: { sorter: 'interger' },
+                           4: { sorter: 'isoDatetime' },
+                           5: { sorter: 'isoDatetime' },
+                           //6: { sorter: false },
+                },
+                sortList: [[0,0]],
+                //debug: true,
+                cancelSelection: false,
+                widgets: ['zebra','filter'],
+                widthFixed: true,
+        });
+});
+</script>
 </head>
+<body>
 <h1>MapReduce Task</h1>
 
 <p>Job Id {{.Id}}</p>
 <p>{{.Pending}} Pending / {{.Running}} Running / {{.Done}} Done / {{.Failed }} Failed</p>
 
 <table>
+<thead>
 <tr>
     <th align="center">Id</th>
-    <th align="center">Type</th>
-    <th align="center">Status</th>
-    <th align="center">Run Count</th>
+    <th align="center">Type<br/><select multiple onchange='$(this).parents("table").trigger("applyWidgets")'></select></th>
+    <th align="center">Status<br/><select multiple onchange='$(this).parents("table").trigger("applyWidgets")'></select></th>
+    <th align="center">Run Count<br/><select multiple onchange='$(this).parents("table").trigger("applyWidgets")'></select></th>
     <th align="center">Start Time</th>
     <th align="center">Update Time</th>
     <th align="center">Info</th>
 </tr>
-
+</thead>
+<tbody>
 {{range $index, $task := .Tasks}}
 <tr>
     <td>
@@ -92,9 +137,10 @@ table,td,th {
 </tr>
 
 {{end}}
-
+</tbody>
 </table>
-
+</body>
+</html>
 `
 
 func ConsoleHandler(w http.ResponseWriter, r *http.Request) {
