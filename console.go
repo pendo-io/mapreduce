@@ -13,13 +13,9 @@ import (
 	"google.golang.org/appengine/log"
 )
 
-const main = `<html><head><title>MapReduce Console</title>
-{{$css}}
-<script src="https://ajax.googleapis.com/ajax/libs/jquery/1.4.2/jquery.min.js"></script>
-<script type="text/javascript" id="js">
-{{$js}}
+const head = `<html><head><title>MapReduce Console</title>`
 
-$(function() {
+const main = `$(function() {
         // call the tablesorter plugin
         $("table").tablesorter({
                 headers: { 0: { sorter: 'integer' },
@@ -79,12 +75,7 @@ $(function() {
 
 `
 
-const jobPage = `<html><head><title>MapReduce Console</title>
-<script src="https://ajax.googleapis.com/ajax/libs/jquery/1.4.2/jquery.min.js"></script>
-<script type="text/javascript" id="js">
-{{$css}}
-{{$js}}
-$(function() {
+const jobPage = `$(function() {
         // call the tablesorter plugin
         $("table").tablesorter({
                 headers: { 0: { sorter: 'integer' },
@@ -194,7 +185,11 @@ func ConsoleHandler(w http.ResponseWriter, r *http.Request) {
 		}
 
 		t := template.New("main")
-		t, _ = t.Parse(jobPage)
+		t, err := t.Parse(head + css + js + jobPage)
+		if err != nil {
+			http.Error(w, "Internal error: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
 		if err := t.Execute(w, struct {
 			Id                             int64
 			Tasks                          []JobTask
@@ -249,7 +244,11 @@ func jobList(w http.ResponseWriter, r *http.Request, skipId int64) {
 	log.Infof(c, "%d jobs %d annotatedList", len(jobs), len(annotatedList))
 
 	t := template.New("main")
-	t, _ = t.Parse(main)
+	t, err = t.Parse(head + css + js + main)
+	if err != nil {
+		http.Error(w, "Internal error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
 	err = t.Execute(w, struct {
 		Jobs []annotatedJob
 		Keys []*datastore.Key
