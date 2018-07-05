@@ -1,7 +1,10 @@
 package mapreduce
 
-const js = `/* Minified tablesorter from http://tablesorter.com/docs/ under MIT license
-The MIT License (MIT)
+const js = `
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/1.4.2/jquery.min.js"></script>
+<script type="text/javascript" id="js">
+var license = "Minified tablesorter from http://tablesorter.com/docs/ under MIT license";
+/* The MIT License (MIT)
 
 Copyright (c) 2014 Christian Bach
 
