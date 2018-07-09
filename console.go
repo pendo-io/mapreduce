@@ -26,10 +26,10 @@ const main = `$(function() {
                            5: { sorter: 'duration' },
                            6: { sorter: false },
                 },
-                sortList: [[5,0]],
+                sortList: [[3,1]],
                 //debug: true,
                 cancelSelection: false,
-                widgets: ['zebra','filter'],
+                widgets: ['filter', 'zebra'],
                 widthFixed: true,
         });
 });
@@ -89,7 +89,7 @@ const jobPage = `$(function() {
                 sortList: [[0,0]],
                 //debug: true,
                 cancelSelection: false,
-                widgets: ['zebra','filter'],
+                widgets: ['filter', 'zebra'],
                 widthFixed: true,
         });
 });
