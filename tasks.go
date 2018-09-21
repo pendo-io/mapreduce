@@ -174,7 +174,7 @@ func createTasks(ds appwrap.Datastore, jobKey *datastore.Key, taskKeys []*datast
 	log.Infof("%d tasks created; first is %s", i, taskKeys[0])
 
 	return runInTransaction(ds,
-		func(ds appwrap.Datastore) error {
+		func(ds appwrap.DatastoreTransaction) error {
 			var job JobInfo
 
 			if err := ds.Get(jobKey, &job); err != nil {
@@ -199,14 +199,15 @@ func mrBackOff() backoff.BackOff {
 	return b
 }
 
-func runInTransaction(ds appwrap.Datastore, f func(ds appwrap.Datastore) error) error {
+func runInTransaction(ds appwrap.Datastore, f func(trans appwrap.DatastoreTransaction) error) error {
 	return backoff.Retry(func() error {
-		return ds.RunInTransaction(f, nil)
+		_, err := ds.RunInTransaction(f, nil)
+		return err
 	}, mrBackOff())
 }
 
 func markJobFailed(c context.Context, ds appwrap.Datastore, jobKey *datastore.Key, log appwrap.Logging) (prev JobInfo, finalErr error) {
-	finalErr = runInTransaction(ds, func(ds appwrap.Datastore) error {
+	finalErr = runInTransaction(ds, func(ds appwrap.DatastoreTransaction) error {
 		prev = JobInfo{}
 		if err := ds.Get(jobKey, &prev); err != nil {
 			return err
@@ -269,7 +270,7 @@ func jobStageComplete(ds appwrap.Datastore, jobKey *datastore.Key, taskKeys []*d
 	}
 
 	// running this in a transaction ensures only one process advances the stage
-	if transErr := runInTransaction(ds, func(ds appwrap.Datastore) error {
+	if transErr := runInTransaction(ds, func(ds appwrap.DatastoreTransaction) error {
 		job = JobInfo{}
 		if err := ds.Get(jobKey, &job); err != nil {
 			return err
