@@ -30,7 +30,7 @@ import (
 	"google.golang.org/appengine/datastore"
 )
 
-func mapMonitorTask(c context.Context, ds appwrap.Datastore, pipeline MapReducePipeline, jobKey *datastore.Key, r *http.Request, timeout time.Duration, log appwrap.Logging) int {
+func mapMonitorTask(c context.Context, ds appwrap.Datastore, pipeline MapReducePipeline, jobKey *appwrap.DatastoreKey, r *http.Request, timeout time.Duration, log appwrap.Logging) int {
 	start := time.Now()
 
 	job, err := waitForStageCompletion(c, ds, pipeline, jobKey, StageMapping, StageReducing, timeout, log)
@@ -142,7 +142,7 @@ func mapMonitorTask(c context.Context, ds appwrap.Datastore, pipeline MapReduceP
 	return 200
 }
 
-func mapTask(c context.Context, ds appwrap.Datastore, baseUrl string, mr MapReducePipeline, taskKey *datastore.Key, w http.ResponseWriter, r *http.Request, log appwrap.Logging) {
+func mapTask(c context.Context, ds appwrap.Datastore, baseUrl string, mr MapReducePipeline, taskKey *appwrap.DatastoreKey, w http.ResponseWriter, r *http.Request, log appwrap.Logging) {
 	var finalErr error
 	var shardNames map[string]int
 	var task JobTask

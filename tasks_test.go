@@ -40,7 +40,7 @@ func (mock *taskInterfaceMock) PostStatus(c context.Context, fullUrl string, log
 
 func (mrt *MapreduceTests) TestJobStageComplete(c *ck.C) {
 	c.Skip("YOU SHALL NOT PASS! (Because the dual monitor patch broke it)")
-	ds := appwrap.NewLocalDatastore(false)
+	ds := appwrap.NewLocalDatastore(false, nil)
 	ctx := appwrap.StubContext()
 
 	jobKey, err := createJob(ds, "prefix", []string{}, "complete", false, "", 5)
@@ -123,7 +123,7 @@ func (mrt *MapreduceTests) TestJobStageComplete(c *ck.C) {
 }
 
 func (mrt *MapreduceTests) TestWaitForStageCompletion(c *ck.C) {
-	ds := appwrap.NewLocalDatastore(false)
+	ds := appwrap.NewLocalDatastore(false, nil)
 	ctx := appwrap.StubContext()
 	jobKey, err := createJob(ds, "prefix", []string{}, "complete", false, "", 5)
 	c.Assert(err, ck.IsNil)
