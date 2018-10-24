@@ -9,7 +9,6 @@ import (
 
 	"github.com/pendo-io/appwrap"
 	"google.golang.org/appengine"
-	"google.golang.org/appengine/datastore"
 	"google.golang.org/appengine/log"
 )
 
@@ -57,7 +56,7 @@ const main = `$(function() {
 <tr>
     {{$key := index $.Keys $index}} 
     <td>
-        {{ $id:=$key.IntID }}
+        {{ $id:=appwrap.KeyIntID($key) }}
 	<a href="job?id={{$id}}">{{$id}}</a>
     </td>
     <td>{{$job.UrlPrefix}}</td>
@@ -136,13 +135,17 @@ const jobPage = `$(function() {
 
 func ConsoleHandler(w http.ResponseWriter, r *http.Request) {
 	c := appengine.NewContext(r)
-	ds := appwrap.NewAppengineDatastore(c)
+	ds, err := appwrap.NewDatastore(c)
+	if err != nil {
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
 
 	if strings.HasSuffix(r.URL.Path, "/job") {
 		id, _ := strconv.ParseInt(r.FormValue("id"), 10, 64)
 
 		var tasks []JobTask
-		var taskKeys []*datastore.Key
+		var taskKeys []*appwrap.DatastoreKey
 		if job, err := GetJob(ds, id); err != nil {
 			http.Error(w, "Internal error reading job: "+err.Error(), http.StatusInternalServerError)
 			return
@@ -157,8 +160,8 @@ func ConsoleHandler(w http.ResponseWriter, r *http.Request) {
 					taskKeys = makeTaskKeys(ds, job.FirstTaskId, job.TaskCount)
 				}
 			default:
-				jobKey := datastore.NewKey(c, JobEntity, "", id, nil)
-				if tk, err := datastore.NewQuery(TaskEntity).Filter("Job =", jobKey).GetAll(c, &tasks); err != nil {
+				jobKey := ds.NewKey(JobEntity, "", id, nil)
+				if tk, err := ds.NewQuery(TaskEntity).Filter("Job =", jobKey).GetAll(&tasks); err != nil {
 					http.Error(w, "Internal error: "+err.Error(), http.StatusInternalServerError)
 					return
 				} else {
@@ -193,7 +196,7 @@ func ConsoleHandler(w http.ResponseWriter, r *http.Request) {
 		if err := t.Execute(w, struct {
 			Id                             int64
 			Tasks                          []JobTask
-			TaskKeys                       []*datastore.Key
+			TaskKeys                       []*appwrap.DatastoreKey
 			Pending, Running, Done, Failed int
 		}{id, tasks, taskKeys, pending, running, done, failed}); err != nil {
 			http.Error(w, "Internal error: "+err.Error(), http.StatusInternalServerError)
@@ -207,18 +210,18 @@ func ConsoleHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		jobList(w, r, id)
+		jobList(ds, w, r, id)
 	} else {
-		jobList(w, r, 0)
+		jobList(ds, w, r, 0)
 	}
 }
 
-func jobList(w http.ResponseWriter, r *http.Request, skipId int64) {
+func jobList(ds appwrap.Datastore, w http.ResponseWriter, r *http.Request, skipId int64) {
 	c := appengine.NewContext(r)
 
-	q := datastore.NewQuery(JobEntity).Order("-UpdatedAt")
+	q := ds.NewQuery(JobEntity).Order("-UpdatedAt")
 	var jobs []JobInfo
-	keys, err := q.GetAll(c, &jobs)
+	keys, err := q.GetAll(&jobs)
 	if err != nil {
 		http.Error(w, "Internal error: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -231,7 +234,7 @@ func jobList(w http.ResponseWriter, r *http.Request, skipId int64) {
 	annotatedList := make([]annotatedJob, 0, len(keys))
 
 	for i, key := range keys {
-		if key.IntID() != skipId {
+		if appwrap.KeyIntID(key) != skipId {
 			job := annotatedJob{JobInfo: jobs[i]}
 			if !jobs[i].StartTime.IsZero() {
 				job.Duration = jobs[i].UpdatedAt.Sub(jobs[i].StartTime)
@@ -251,7 +254,7 @@ func jobList(w http.ResponseWriter, r *http.Request, skipId int64) {
 	}
 	err = t.Execute(w, struct {
 		Jobs []annotatedJob
-		Keys []*datastore.Key
+		Keys []*appwrap.DatastoreKey
 	}{annotatedList, keys})
 	if err != nil {
 		http.Error(w, "Internal error: "+err.Error(), http.StatusInternalServerError)

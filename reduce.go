@@ -28,35 +28,34 @@ import (
 
 	"github.com/pendo-io/appwrap"
 	"golang.org/x/net/context"
-	"google.golang.org/appengine/datastore"
 )
 
-func reduceMonitorTask(c context.Context, ds appwrap.Datastore, pipeline MapReducePipeline, jobKey *datastore.Key, r *http.Request, timeout time.Duration, log appwrap.Logging) int {
+func reduceMonitorTask(c context.Context, ds appwrap.Datastore, pipeline MapReducePipeline, jobKey *appwrap.DatastoreKey, r *http.Request, timeout time.Duration, log appwrap.Logging) int {
 	start := time.Now()
 
 	job, err := waitForStageCompletion(c, ds, pipeline, jobKey, StageReducing, StageDone, timeout, log)
 	if err != nil {
-		log.Criticalf("waitForStageCompletion() failed for job %d: %s", jobKey.IntID(), err)
+		log.Criticalf("waitForStageCompletion() failed for job %d: %s", appwrap.KeyIntID(jobKey), err)
 		return 200
 	} else if job.Stage == StageReducing {
-		log.Infof("wait timed out for job %d -- returning an error and letting us automatically restart", jobKey.IntID())
+		log.Infof("wait timed out for job %d -- returning an error and letting us automatically restart", appwrap.KeyIntID(jobKey))
 
 		return 500
 	}
 
-	log.Infof("reduce complete status for job %d: %s", jobKey.IntID(), job.Stage)
+	log.Infof("reduce complete status for job %d: %s", appwrap.KeyIntID(jobKey), job.Stage)
 	if job.OnCompleteUrl != "" {
-		successUrl := fmt.Sprintf("%s?status=%s;id=%d", job.OnCompleteUrl, TaskStatusDone, jobKey.IntID())
+		successUrl := fmt.Sprintf("%s?status=%s;id=%d", job.OnCompleteUrl, TaskStatusDone, appwrap.KeyIntID(jobKey))
 		log.Infof("posting complete status to url %s", successUrl)
 		pipeline.PostStatus(c, successUrl, log)
 	}
 
-	log.Infof("reduction complete for job %d after %s of monitoring ", jobKey.IntID(), time.Now().Sub(start))
+	log.Infof("reduction complete for job %d after %s of monitoring ", appwrap.KeyIntID(jobKey), time.Now().Sub(start))
 
 	return 200
 }
 
-func reduceTask(c context.Context, ds appwrap.Datastore, baseUrl string, mr MapReducePipeline, taskKey *datastore.Key, w http.ResponseWriter, r *http.Request, log appwrap.Logging) {
+func reduceTask(c context.Context, ds appwrap.Datastore, baseUrl string, mr MapReducePipeline, taskKey *appwrap.DatastoreKey, w http.ResponseWriter, r *http.Request, log appwrap.Logging) {
 	var writer SingleOutputWriter
 	var task JobTask
 	var err error
