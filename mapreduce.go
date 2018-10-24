@@ -18,6 +18,7 @@ package mapreduce
 import (
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -158,10 +159,32 @@ func Run(c context.Context, ds appwrap.Datastore, job MapReduceJob) (int64, erro
 		return 0, fmt.Errorf("creating job: %s", err)
 	}
 
-	firstId, _, err := datastore.AllocateIDs(c, TaskEntity, nil, len(readerNames))
-	if err != nil {
-		return 0, fmt.Errorf("allocating task ids: %s", err)
+	incomplete := make([]*appwrap.DatastoreKey, len(readerNames))
+	for i := range incomplete {
+		incomplete[i] = ds.NewKey(TaskEntity, "", 0, nil)
 	}
+
+	var firstId int64
+
+	if completeKeys, err := ds.AllocateIDSet(incomplete); err != nil {
+		return 0, fmt.Errorf("reserving keys: %s", err)
+	} else {
+		ids := make([]int, len(completeKeys))
+		for i, k := range completeKeys {
+			ids[i] = int(appwrap.KeyIntID(k))
+		}
+
+		sort.Sort(sort.IntSlice(ids))
+
+		for i := 0; i < len(ids); i++ {
+			if ids[i] != ids[i+1]-1 {
+				return 0, fmt.Errorf("nonconsecutive keys allocated")
+			}
+		}
+
+		firstId = int64(ids[0])
+	}
+
 	taskKeys := makeTaskKeys(ds, firstId, len(readerNames))
 	tasks := make([]JobTask, len(readerNames))
 
