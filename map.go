@@ -27,7 +27,6 @@ import (
 
 	"github.com/pendo-io/appwrap"
 	"golang.org/x/net/context"
-	"google.golang.org/appengine/datastore"
 )
 
 func mapMonitorTask(c context.Context, ds appwrap.Datastore, pipeline MapReducePipeline, jobKey *appwrap.DatastoreKey, r *http.Request, timeout time.Duration, log appwrap.Logging) int {
@@ -68,7 +67,7 @@ func mapMonitorTask(c context.Context, ds appwrap.Datastore, pipeline MapReduceP
 		}
 	}
 
-	firstId, _, err := datastore.AllocateIDs(c, TaskEntity, nil, len(job.WriterNames))
+	firstId, err := mkIds(ds, TaskEntity, len(job.WriterNames))
 	if err != nil {
 		jobFailed(c, ds, pipeline, jobKey, fmt.Errorf("failed to allocate ids for reduce tasks: %s", err.Error()), log)
 		return 200

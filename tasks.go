@@ -23,7 +23,6 @@ import (
 	"github.com/cenkalti/backoff"
 	"github.com/pendo-io/appwrap"
 	"golang.org/x/net/context"
-	"google.golang.org/appengine/datastore"
 	"google.golang.org/appengine/taskqueue"
 )
 
@@ -601,7 +600,7 @@ type startTopIntf interface {
 }
 
 func retryError(err error) bool {
-	return (err != datastore.ErrNoSuchEntity)
+	return (err != appwrap.ErrNoSuchEntity)
 }
 
 // returns job if err is nil, err, and a boolean saying if the task should be restarted (true/false)

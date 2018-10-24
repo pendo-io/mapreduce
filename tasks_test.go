@@ -20,7 +20,6 @@ import (
 	"github.com/pendo-io/appwrap"
 	"github.com/stretchr/testify/mock"
 	"golang.org/x/net/context"
-	"google.golang.org/appengine/datastore"
 	ck "gopkg.in/check.v1"
 )
 
@@ -41,7 +40,6 @@ func (mock *taskInterfaceMock) PostStatus(c context.Context, fullUrl string, log
 func (mrt *MapreduceTests) TestJobStageComplete(c *ck.C) {
 	c.Skip("YOU SHALL NOT PASS! (Because the dual monitor patch broke it)")
 	ds := appwrap.NewLocalDatastore(false, nil)
-	ctx := appwrap.StubContext()
 
 	jobKey, err := createJob(ds, "prefix", []string{}, "complete", false, "", 5)
 	c.Assert(err, ck.IsNil)
@@ -55,7 +53,7 @@ func (mrt *MapreduceTests) TestJobStageComplete(c *ck.C) {
 
 	checkStage(StageFormation)
 
-	taskKeys := make([]*datastore.Key, 2)
+	taskKeys := make([]*appwrap.DatastoreKey, 2)
 	tasks := make([]JobTask, len(taskKeys))
 	for i := range taskKeys {
 		taskKeys[i] = ds.NewKey(TaskEntity, "", int64(i+1), jobKey)
@@ -97,10 +95,10 @@ func (mrt *MapreduceTests) TestJobStageComplete(c *ck.C) {
 	checkStage(StageReducing)
 
 	// let's fail a reducer and see what happens
-	reduceKeys := make([]*datastore.Key, 2)
+	reduceKeys := make([]*appwrap.DatastoreKey, 2)
 	reduceTasks := make([]JobTask, len(reduceKeys))
-	reduceKeys[0] = datastore.NewKey(ctx, TaskEntity, "", int64(1001), jobKey)
-	reduceKeys[1] = datastore.NewKey(ctx, TaskEntity, "", int64(1002), jobKey)
+	reduceKeys[0] = ds.NewKey(TaskEntity, "", int64(1001), jobKey)
+	reduceKeys[1] = ds.NewKey(TaskEntity, "", int64(1002), jobKey)
 	reduceTasks[0] = JobTask{
 		Status: TaskStatusFailed,
 		Info:   "reason for failure",
@@ -131,7 +129,7 @@ func (mrt *MapreduceTests) TestWaitForStageCompletion(c *ck.C) {
 	taskMock := &taskInterfaceMock{}
 	count := 0
 	job, err := doWaitForStageCompletion(ctx, ds, taskMock, jobKey, StageMapping, StageReducing, 1*time.Millisecond,
-		func(ds appwrap.Datastore, jobKey *datastore.Key, tasks []*datastore.Key, expectedStage, nextStage JobStage, log appwrap.Logging) (stageChanged bool, job JobInfo, finalErr error) {
+		func(ds appwrap.Datastore, jobKey *appwrap.DatastoreKey, tasks []*appwrap.DatastoreKey, expectedStage, nextStage JobStage, log appwrap.Logging) (stageChanged bool, job JobInfo, finalErr error) {
 			if count == 5 {
 				return true, JobInfo{UrlPrefix: "foo"}, nil
 			}
@@ -146,7 +144,7 @@ func (mrt *MapreduceTests) TestWaitForStageCompletion(c *ck.C) {
 	taskMock.On("PostStatus", ctx, mock.Anything, mrt.nullLog).Return(nil).Once()
 
 	job, err = doWaitForStageCompletion(ctx, ds, taskMock, jobKey, StageMapping, StageReducing, 1*time.Millisecond,
-		func(ds appwrap.Datastore, jobKey *datastore.Key, tasks []*datastore.Key, expectedStage, nextStage JobStage, log appwrap.Logging) (stageChanged bool, job JobInfo, finalErr error) {
+		func(ds appwrap.Datastore, jobKey *appwrap.DatastoreKey, tasks []*appwrap.DatastoreKey, expectedStage, nextStage JobStage, log appwrap.Logging) (stageChanged bool, job JobInfo, finalErr error) {
 			// this is what happens when a task fails
 			return true, JobInfo{Stage: StageFailed}, nil
 		},
