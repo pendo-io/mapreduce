@@ -18,13 +18,13 @@ package mapreduce
 import (
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/pendo-io/appwrap"
 	"golang.org/x/net/context"
 	"google.golang.org/appengine"
-	"google.golang.org/appengine/datastore"
 )
 
 // MappedData items are key/value pairs returned from the Map stage. The items are rearranged
@@ -159,10 +159,11 @@ func Run(c context.Context, ds appwrap.Datastore, job MapReduceJob) (int64, erro
 		return 0, fmt.Errorf("creating job: %s", err)
 	}
 
-	firstId, _, err := datastore.AllocateIDs(c, TaskEntity, nil, len(readerNames))
+	firstId, err := mkIds(ds, TaskEntity, len(readerNames))
 	if err != nil {
-		return 0, fmt.Errorf("allocating task ids: %s", err)
+		return 0, fmt.Errorf("allocating keys: %s", err)
 	}
+
 	taskKeys := makeTaskKeys(ds, firstId, len(readerNames))
 	tasks := make([]JobTask, len(readerNames))
 
@@ -180,7 +181,7 @@ func Run(c context.Context, ds appwrap.Datastore, job MapReduceJob) (int64, erro
 
 	if err := createTasks(ds, jobKey, taskKeys, tasks, StageMapping, log); err != nil {
 		if _, innerErr := markJobFailed(c, ds, jobKey, log); err != nil {
-			log.Errorf("failed to log job %d as failed: %s", jobKey.IntID(), innerErr)
+			log.Errorf("failed to log job %d as failed: %s", appwrap.KeyIntID(jobKey), innerErr)
 		}
 		return 0, fmt.Errorf("creating tasks: %s", err)
 	}
@@ -188,7 +189,7 @@ func Run(c context.Context, ds appwrap.Datastore, job MapReduceJob) (int64, erro
 	for i := range tasks {
 		if err := job.PostTask(c, tasks[i].Url, job.JobParameters, log); err != nil {
 			if _, innerErr := markJobFailed(c, ds, jobKey, log); err != nil {
-				log.Errorf("failed to log job %d as failed: %s", jobKey.IntID(), innerErr)
+				log.Errorf("failed to log job %d as failed: %s", appwrap.KeyIntID(jobKey), innerErr)
 			}
 			return 0, fmt.Errorf("posting task: %s", err)
 		}
@@ -198,7 +199,7 @@ func Run(c context.Context, ds appwrap.Datastore, job MapReduceJob) (int64, erro
 		log.Criticalf("failed to start map monitor task: %s", err)
 	}
 
-	return jobKey.IntID(), nil
+	return appwrap.KeyIntID(jobKey), nil
 }
 
 type urlHandler struct {
@@ -218,7 +219,11 @@ func MapReduceHandler(baseUrl string, pipeline MapReducePipeline,
 
 func (h urlHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	c := h.getContext(r)
-	ds := appwrap.NewAppengineDatastore(c)
+	ds, err := appwrap.NewDatastore(c)
+	if err != nil {
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
 	log := appwrap.NewAppengineLogging(c)
 
 	monitorTimeout := time.Minute * 30
@@ -229,7 +234,7 @@ func (h urlHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if strings.HasSuffix(r.URL.Path, "/map-monitor") || strings.HasSuffix(r.URL.Path, "/reduce-monitor") {
 		if jobKeyStr := r.FormValue("jobKey"); jobKeyStr == "" {
 			http.Error(w, "jobKey parameter required", http.StatusBadRequest)
-		} else if jobKey, err := datastore.DecodeKey(jobKeyStr); err != nil {
+		} else if jobKey, err := appwrap.DecodeKey(jobKeyStr); err != nil {
 			http.Error(w, fmt.Sprintf("invalid jobKey: %s", err.Error()),
 				http.StatusBadRequest)
 		} else if strings.HasSuffix(r.URL.Path, "/map-monitor") {
@@ -241,13 +246,12 @@ func (h urlHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var taskKey *datastore.Key
-	var err error
+	var taskKey *appwrap.DatastoreKey
 
 	if taskKeyStr := r.FormValue("taskKey"); taskKeyStr == "" {
 		http.Error(w, "taskKey parameter required", http.StatusBadRequest)
 		return
-	} else if taskKey, err = datastore.DecodeKey(taskKeyStr); err != nil {
+	} else if taskKey, err = appwrap.DecodeKey(taskKeyStr); err != nil {
 		http.Error(w, fmt.Sprintf("invalid taskKey: %s", err.Error()),
 			http.StatusBadRequest)
 		return
@@ -272,7 +276,7 @@ func (h urlHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func makeStatusUpdateFunc(c context.Context, ds appwrap.Datastore, pipeline MapReducePipeline, urlStr string, taskKey string, log appwrap.Logging) StatusUpdateFunc {
 	return func(format string, paramList ...interface{}) {
 		msg := fmt.Sprintf(format, paramList...)
-		if key, err := datastore.DecodeKey(taskKey); err != nil {
+		if key, err := appwrap.DecodeKey(taskKey); err != nil {
 			log.Errorf("failed to decode task key for status: %s", err)
 		} else if _, err := updateTask(ds, key, "", 0, msg, nil); err != nil {
 			log.Errorf("failed to update task status: %s", err)
@@ -298,4 +302,30 @@ func tryAgainIfNonFatal(err error) error {
 		return err
 	}
 	return nil
+}
+
+func mkIds(ds appwrap.Datastore, kind string, count int) (int64, error) {
+	incomplete := make([]*appwrap.DatastoreKey, count)
+	for i := range incomplete {
+		incomplete[i] = ds.NewKey(kind, "", 0, nil)
+	}
+
+	if completeKeys, err := ds.AllocateIDSet(incomplete); err != nil {
+		return 0, fmt.Errorf("reserving keys: %s", err)
+	} else {
+		ids := make([]int, len(completeKeys))
+		for i, k := range completeKeys {
+			ids[i] = int(appwrap.KeyIntID(k))
+		}
+
+		sort.Sort(sort.IntSlice(ids))
+
+		for i := 0; i < len(ids); i++ {
+			if ids[i] != ids[i+1]-1 {
+				return 0, fmt.Errorf("nonconsecutive keys allocated")
+			}
+		}
+
+		return int64(ids[0]), nil
+	}
 }
