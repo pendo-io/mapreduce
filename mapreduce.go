@@ -320,7 +320,7 @@ func mkIds(ds appwrap.Datastore, kind string, count int) (int64, error) {
 
 		sort.Sort(sort.IntSlice(ids))
 
-		for i := 0; i < len(ids); i++ {
+		for i := 0; i < len(ids) - 1; i++ {
 			if ids[i] != ids[i+1]-1 {
 				return 0, fmt.Errorf("nonconsecutive keys allocated")
 			}
