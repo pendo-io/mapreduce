@@ -56,7 +56,7 @@ const main = `$(function() {
 <tr>
     {{$key := index $.Keys $index}} 
     <td>
-        {{ $id:=appwrap.KeyIntID($key) }}
+        {{ $id:=(KeyIntId $key) }}
 	<a href="job?id={{$id}}">{{$id}}</a>
     </td>
     <td>{{$job.UrlPrefix}}</td>
@@ -116,7 +116,7 @@ const jobPage = `$(function() {
 {{range $index, $task := .Tasks}}
 <tr>
     <td>
-        {{$key := index $.TaskKeys $index}} {{ $key.IntID }}
+        {{$key := index $.TaskKeys $index}} {{ KeyIntId $key }}
     </td>
     <td align="center">{{$task.Type}}</td>
     <td align="center">{{$task.Status}}</td>
@@ -187,7 +187,11 @@ func ConsoleHandler(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		t := template.New("main")
+		funcMap := template.FuncMap{
+			"KeyIntId": appwrap.KeyIntID,
+		}
+
+		t := template.New("main").Funcs(funcMap)
 		t, err := t.Parse(head + css + js + jobPage)
 		if err != nil {
 			http.Error(w, "Internal error: "+err.Error(), http.StatusInternalServerError)
@@ -246,7 +250,11 @@ func jobList(ds appwrap.Datastore, w http.ResponseWriter, r *http.Request, skipI
 
 	log.Infof(c, "%d jobs %d annotatedList", len(jobs), len(annotatedList))
 
-	t := template.New("main")
+	funcMap := template.FuncMap{
+		"KeyIntId": appwrap.KeyIntID,
+	}
+
+	t := template.New("main").Funcs(funcMap)
 	t, err = t.Parse(head + css + js + main)
 	if err != nil {
 		http.Error(w, "Internal error: "+err.Error(), http.StatusInternalServerError)
