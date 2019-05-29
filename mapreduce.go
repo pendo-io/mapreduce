@@ -18,7 +18,6 @@ package mapreduce
 import (
 	"fmt"
 	"net/http"
-	"sort"
 	"strings"
 	"time"
 
@@ -159,12 +158,10 @@ func Run(c context.Context, ds appwrap.Datastore, job MapReduceJob) (int64, erro
 		return 0, fmt.Errorf("creating job: %s", err)
 	}
 
-	firstId, err := mkIds(ds, TaskEntity, len(readerNames))
+	taskKeys, err := mkKeys(ds, TaskEntity, len(readerNames))
 	if err != nil {
 		return 0, fmt.Errorf("allocating keys: %s", err)
 	}
-
-	taskKeys := makeTaskKeys(ds, firstId, len(readerNames))
 	tasks := make([]JobTask, len(readerNames))
 
 	for i, readerName := range readerNames {
@@ -304,28 +301,15 @@ func tryAgainIfNonFatal(err error) error {
 	return nil
 }
 
-func mkIds(ds appwrap.Datastore, kind string, count int) (int64, error) {
+func mkKeys(ds appwrap.Datastore, kind string, count int) ([]*appwrap.DatastoreKey, error) {
 	incomplete := make([]*appwrap.DatastoreKey, count)
 	for i := range incomplete {
 		incomplete[i] = ds.NewKey(kind, "", 0, nil)
 	}
 
 	if completeKeys, err := ds.AllocateIDSet(incomplete); err != nil {
-		return 0, fmt.Errorf("reserving keys: %s", err)
+		return nil, fmt.Errorf("reserving keys: %s", err)
 	} else {
-		ids := make([]int, len(completeKeys))
-		for i, k := range completeKeys {
-			ids[i] = int(appwrap.KeyIntID(k))
-		}
-
-		sort.Sort(sort.IntSlice(ids))
-
-		for i := 0; i < len(ids) - 1; i++ {
-			if ids[i] != ids[i+1]-1 {
-				return 0, fmt.Errorf("nonconsecutive keys allocated")
-			}
-		}
-
-		return int64(ids[0]), nil
+		return completeKeys, nil
 	}
 }
