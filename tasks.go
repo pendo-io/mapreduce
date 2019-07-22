@@ -303,12 +303,21 @@ func jobStageComplete(ds appwrap.Datastore, jobKey *appwrap.DatastoreKey, taskKe
 
 func getTask(ds appwrap.Datastore, taskKey *appwrap.DatastoreKey) (JobTask, error) {
 	var task JobTask
+	var fatalErr error
 
 	err := backoff.Retry(func() error {
-		return ds.Get(taskKey, &task)
+		switch err := ds.Get(taskKey, &task); err {
+		case appwrap.ErrNoSuchEntity: // abort retry loop on fatal error
+			fatalErr = err
+			return nil
+		default:
+			return err
+		}
 	}, mrBackOff())
 
-	if err != nil {
+	if fatalErr != nil {
+		return JobTask{}, fatalErr
+	} else if err != nil {
 		return JobTask{}, err
 	}
 
@@ -360,17 +369,25 @@ func updateTask(ds appwrap.Datastore, taskKey *appwrap.DatastoreKey, status Task
 
 func getJob(ds appwrap.Datastore, jobKey *appwrap.DatastoreKey) (JobInfo, error) {
 	var job JobInfo
+	var fatalErr error
 
 	err := backoff.Retry(func() error {
-		if err := ds.Get(jobKey, &job); err != nil {
+		switch err := ds.Get(jobKey, &job); err {
+		case appwrap.ErrNoSuchEntity: // abort retry loop on fatal error
+			fatalErr = err
+			return nil
+		default:
 			return err
 		}
-
-		return nil
 	}, mrBackOff())
 
-	job.Id = appwrap.KeyIntID(jobKey)
+	if fatalErr != nil {
+		return JobInfo{}, fatalErr
+	} else if err != nil {
+		return JobInfo{}, err
+	}
 
+	job.Id = appwrap.KeyIntID(jobKey)
 	return job, err
 }
 

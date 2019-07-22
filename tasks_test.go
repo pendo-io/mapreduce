@@ -153,3 +153,23 @@ func (mrt *MapreduceTests) TestWaitForStageCompletion(c *ck.C) {
 	c.Assert(err, ck.NotNil)
 	taskMock.AssertExpectations(c)
 }
+
+func (mrt *MapreduceTests) TestGetTaskMissing(c *ck.C) {
+	ds := appwrap.NewLocalDatastore(false, nil)
+	key := ds.NewKey(TaskEntity, "", 12345, nil)
+
+	before := time.Now()
+	_, err := getTask(ds, key)
+	c.Assert(err, ck.Equals, appwrap.ErrNoSuchEntity)
+	c.Assert(time.Since(before) < time.Second, ck.IsTrue) // should be zero delay; give plenty of margin for automated tests
+}
+
+func (mrt *MapreduceTests) TestGetJobMissing(c *ck.C) {
+	ds := appwrap.NewLocalDatastore(false, nil)
+	key := ds.NewKey(JobEntity, "", 12345, nil)
+
+	before := time.Now()
+	_, err := getJob(ds, key)
+	c.Assert(err, ck.Equals, appwrap.ErrNoSuchEntity)
+	c.Assert(time.Since(before) < time.Second, ck.IsTrue) // should be zero delay; give plenty of margin for automated tests
+}
