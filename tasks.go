@@ -70,7 +70,7 @@ type JobInfo struct {
 	UpdatedAt           time.Time
 	StartTime           time.Time
 	TaskCount           int      `datastore:"TasksRunning,noindex"`
-	FirstTaskId         int64    `datastore:",noindex"`
+	FirstTaskId         int64    `datastore:",noindex"` // 0 here means to use task keys like "%d.%d" (Id, taskNum)
 	RetryCount          int      `datastore:",noindex"`
 	SeparateReduceItems bool     `datastore:",noindex"`
 	OnCompleteUrl       string   `datastore:",noindex"`
@@ -181,7 +181,7 @@ func createTasks(ds appwrap.Datastore, jobKey *appwrap.DatastoreKey, taskKeys []
 			}
 
 			job.TaskCount = len(tasks)
-			job.FirstTaskId = firstId
+			job.FirstTaskId = 0 // use new style ids
 			job.Stage = newStage
 
 			_, err := ds.Put(jobKey, &job)
@@ -284,6 +284,7 @@ func jobStageComplete(ds appwrap.Datastore, jobKey *appwrap.DatastoreKey, taskKe
 
 		job.Stage = nextStage
 		job.UpdatedAt = time.Now()
+		job.Id = appwrap.KeyIntID(jobKey)
 
 		_, err := ds.Put(jobKey, &job)
 		stageChanged = (err == nil)
@@ -443,17 +444,23 @@ func RemoveJob(ds appwrap.Datastore, jobId int64) error {
 	return nil
 }
 
-func makeTaskKeys(ds appwrap.Datastore, firstId int64, count int) []*appwrap.DatastoreKey {
+func makeTaskKeys(ds appwrap.Datastore, jobId int64, firstId int64, count int) []*appwrap.DatastoreKey {
 	taskKeys := make([]*appwrap.DatastoreKey, count)
-	for i := 0; i < count; i++ {
-		taskKeys[i] = ds.NewKey(TaskEntity, "", firstId+int64(i), nil)
+	if firstId == 0 {
+		for i := 0; i < count; i++ {
+			taskKeys[i] = ds.NewKey(TaskEntity, fmt.Sprintf("%d.task%d", jobId, i), 0, nil)
+		}
+	} else {
+		for i := 0; i < count; i++ {
+			taskKeys[i] = ds.NewKey(TaskEntity, "", firstId+int64(i), nil)
+		}
 	}
 
 	return taskKeys
 }
 
 func gatherTasks(ds appwrap.Datastore, job JobInfo) ([]JobTask, error) {
-	taskKeys := makeTaskKeys(ds, job.FirstTaskId, job.TaskCount)
+	taskKeys := makeTaskKeys(ds, job.Id, job.FirstTaskId, job.TaskCount)
 	tasks := make([]JobTask, len(taskKeys))
 
 	i := 0
@@ -557,7 +564,7 @@ func doWaitForStageCompletion(c context.Context, ds appwrap.Datastore, taskIntf 
 		return JobInfo{}, err
 	} else {
 		job = j
-		taskKeys = makeTaskKeys(ds, job.FirstTaskId, job.TaskCount)
+		taskKeys = makeTaskKeys(ds, job.Id, job.FirstTaskId, job.TaskCount)
 	}
 
 	start := time.Now()

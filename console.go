@@ -157,7 +157,7 @@ func ConsoleHandler(w http.ResponseWriter, r *http.Request) {
 					return
 				} else {
 					tasks = tl
-					taskKeys = makeTaskKeys(ds, job.FirstTaskId, job.TaskCount)
+					taskKeys = makeTaskKeys(ds, job.Id, job.FirstTaskId, job.TaskCount)
 				}
 			default:
 				jobKey := ds.NewKey(JobEntity, "", id, nil)
