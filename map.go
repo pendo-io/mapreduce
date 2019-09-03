@@ -67,20 +67,13 @@ func mapMonitorTask(c context.Context, ds appwrap.Datastore, pipeline MapReduceP
 		}
 	}
 
-	firstId, err := mkIds(ds, TaskEntity, len(job.WriterNames))
-	if err != nil {
-		jobFailed(c, ds, pipeline, jobKey, fmt.Errorf("failed to allocate ids for reduce tasks: %s", err.Error()), log)
-		return 200
-	}
-	taskKeys := makeTaskKeys(ds, firstId, len(job.WriterNames))
+	taskKeys := makeTaskKeys(ds, job.Id, 0, len(job.WriterNames))
 	tasks := make([]JobTask, 0, len(job.WriterNames))
 
 	for shard := range job.WriterNames {
 		if shards := storageNames[shard]; len(shards) > 0 {
 			url := fmt.Sprintf("%s/reduce?taskKey=%s;shard=%d;writer=%s",
 				job.UrlPrefix, taskKeys[len(tasks)].Encode(), shard, url.QueryEscape(job.WriterNames[shard]))
-
-			firstId++
 
 			shardJson, _ := json.Marshal(shards)
 			shardZ := &bytes.Buffer{}
