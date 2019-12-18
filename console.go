@@ -9,7 +9,6 @@ import (
 
 	"github.com/pendo-io/appwrap"
 	"google.golang.org/appengine"
-	"google.golang.org/appengine/log"
 )
 
 const head = `<html><head><title>MapReduce Console</title>`
@@ -222,7 +221,7 @@ func ConsoleHandler(w http.ResponseWriter, r *http.Request) {
 
 func jobList(ds appwrap.Datastore, w http.ResponseWriter, r *http.Request, skipId int64) {
 	c := appengine.NewContext(r)
-
+	logger := appwrap.NewStackdriverLogging(c)
 	q := ds.NewQuery(JobEntity).Order("-UpdatedAt")
 	var jobs []JobInfo
 	keys, err := q.GetAll(&jobs)
@@ -248,8 +247,7 @@ func jobList(ds appwrap.Datastore, w http.ResponseWriter, r *http.Request, skipI
 		}
 	}
 
-	log.Infof(c, "%d jobs %d annotatedList", len(jobs), len(annotatedList))
-
+	logger.Infof("%d jobs %d annotatedList", len(jobs), len(annotatedList))
 	funcMap := template.FuncMap{
 		"KeyIntId": appwrap.KeyIntID,
 	}
