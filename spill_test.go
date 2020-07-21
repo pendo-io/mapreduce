@@ -49,7 +49,7 @@ func (mrt *MapreduceTests) TestSpill(c *ck.C) {
 
 		for i := 2000*(pass+1) - 1; i >= 2000*pass; i-- {
 			shard := i % 5
-			dataSets[shard].data = append(dataSets[shard].data, MappedData{Key: int64(i), Value: fmt.Sprintf("%s", i)})
+			dataSets[shard].data = append(dataSets[shard].data, MappedData{Key: int64(i), Value: fmt.Sprintf("%d", i)})
 		}
 
 		spill, err := writeSpill(nil, handler, dataSets)

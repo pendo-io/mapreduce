@@ -23,7 +23,6 @@ import (
 	"github.com/cenkalti/backoff"
 	"github.com/pendo-io/appwrap"
 	"golang.org/x/net/context"
-	"google.golang.org/appengine/taskqueue"
 )
 
 type TaskStatus string
@@ -478,26 +477,6 @@ func gatherTasks(ds appwrap.Datastore, job JobInfo) ([]JobTask, error) {
 	}
 
 	return tasks, nil
-}
-
-// AppengineTaskQueue implements TaskInterface via appengine task queues
-type AppengineTaskQueue struct {
-	// StatusQueueName is the name of the queue used for tasks to report status to the controller
-	StatusQueueName string
-	// TaskQueueName is the name of the queue used to start new tasks
-	TaskQueueName string
-}
-
-func (q AppengineTaskQueue) PostTask(c context.Context, taskUrl string, jsonParameters string) error {
-	task := taskqueue.NewPOSTTask(taskUrl, url.Values{"json": []string{jsonParameters}})
-	_, err := taskqueue.Add(c, task, q.TaskQueueName)
-	return err
-}
-
-func (q AppengineTaskQueue) PostStatus(c context.Context, taskUrl string) error {
-	task := taskqueue.NewPOSTTask(taskUrl, url.Values{})
-	_, err := taskqueue.Add(c, task, q.StatusQueueName)
-	return err
 }
 
 func retryTask(c context.Context, ds appwrap.Datastore, taskIntf TaskInterface, jobKey *appwrap.DatastoreKey, taskKey *appwrap.DatastoreKey, log appwrap.Logging) error {
