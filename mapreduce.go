@@ -16,13 +16,13 @@
 package mapreduce
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/pendo-io/appwrap"
-	"golang.org/x/net/context"
 	"google.golang.org/appengine"
 )
 

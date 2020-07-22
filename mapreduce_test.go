@@ -74,7 +74,7 @@ func (st *SimpleTasks) PostTask(c context.Context, reqUrl string, params string,
 		w := httptest.NewRecorder()
 		st.handler.ServeHTTP(w, req)
 		if w.Code != 200 {
-			fmt.Printf("Got bad response code %s for url %s\n", w.Code, reqUrl)
+			fmt.Printf("Got bad response code %d for url %s\n", w.Code, reqUrl)
 		}
 		print("done running task ", reqUrl, "\n")
 	}()
