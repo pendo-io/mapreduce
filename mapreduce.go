@@ -134,9 +134,7 @@ type MapReduceJob struct {
 	JobParameters string
 }
 
-func Run(c context.Context, ds appwrap.Datastore, job MapReduceJob) (int64, error) {
-	log := appwrap.NewAppengineLogging(c)
-
+func Run(c context.Context, ds appwrap.Datastore, job MapReduceJob, log appwrap.Logging) (int64, error) {
 	readerNames, err := job.Inputs.ReaderNames()
 	if err != nil {
 		return 0, fmt.Errorf("forming reader names: %s", err)
@@ -218,7 +216,7 @@ func (h urlHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
-	log := appwrap.NewAppengineLogging(c)
+	log := appwrap.NewStackdriverLogging(c)
 
 	monitorTimeout := time.Minute * 30
 	if appengine.IsDevAppServer() {
