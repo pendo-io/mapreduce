@@ -164,7 +164,7 @@ func (mrt *MapreduceTests) TestWordCount(c *ck.C) {
 	defer u.SimpleTasks.gather()
 	ds := appwrap.NewLocalDatastore(false, nil)
 
-	_, err := Run(appwrap.StubContext(), ds, job)
+	_, err := Run(appwrap.StubContext(), ds, job, mrt.nullLog)
 	c.Assert(err, ck.Equals, nil)
 
 	resultUrl := <-u.SimpleTasks.done
@@ -194,7 +194,7 @@ func (mrt *MapreduceTests) TestMapPanic(c *ck.C) {
 	defer u.SimpleTasks.gather()
 	ds := appwrap.NewLocalDatastore(false, nil)
 
-	_, err := Run(appwrap.StubContext(), ds, job)
+	_, err := Run(appwrap.StubContext(), ds, job, mrt.nullLog)
 	c.Check(err, ck.Equals, nil)
 
 	resultUrl := <-u.SimpleTasks.done
@@ -237,7 +237,7 @@ func (mrt *MapreduceTests) TestMapError(c *ck.C) {
 	defer u.SimpleTasks.gather()
 	ds := appwrap.NewLocalDatastore(false, nil)
 
-	_, err := Run(appwrap.StubContext(), ds, job)
+	_, err := Run(appwrap.StubContext(), ds, job, mrt.nullLog)
 	c.Check(err, ck.Equals, nil)
 
 	resultUrl := <-u.SimpleTasks.done
@@ -259,7 +259,7 @@ func (mrt *MapreduceTests) TestMapFatal(c *ck.C) {
 	defer u.SimpleTasks.gather()
 	ds := appwrap.NewLocalDatastore(false, nil)
 
-	_, err := Run(appwrap.StubContext(), ds, job)
+	_, err := Run(appwrap.StubContext(), ds, job, mrt.nullLog)
 	c.Check(err, ck.Equals, nil)
 
 	resultUrl := <-u.SimpleTasks.done
@@ -293,7 +293,7 @@ func (mrt *MapreduceTests) TestReducePanic(c *ck.C) {
 	defer u.SimpleTasks.gather()
 	ds := appwrap.NewLocalDatastore(false, nil)
 
-	_, err := Run(appwrap.StubContext(), ds, job)
+	_, err := Run(appwrap.StubContext(), ds, job, mrt.nullLog)
 	c.Check(err, ck.Equals, nil)
 
 	resultUrl := <-u.SimpleTasks.done
@@ -336,7 +336,7 @@ func (mrt *MapreduceTests) TestReduceError(c *ck.C) {
 	defer u.SimpleTasks.gather()
 	ds := appwrap.NewLocalDatastore(false, nil)
 
-	_, err := Run(appwrap.StubContext(), ds, job)
+	_, err := Run(appwrap.StubContext(), ds, job, mrt.nullLog)
 	c.Check(err, ck.Equals, nil)
 
 	resultUrl := <-u.SimpleTasks.done
@@ -354,7 +354,7 @@ func (mrt *MapreduceTests) TestReduceError(c *ck.C) {
 	job = mrt.setup(&v, &v.SimpleTasks)
 	defer v.SimpleTasks.gather()
 
-	_, err = Run(appwrap.StubContext(), ds, job)
+	_, err = Run(appwrap.StubContext(), ds, job, mrt.nullLog)
 	c.Check(err, ck.Equals, nil)
 
 	resultUrl = <-v.SimpleTasks.done
@@ -368,7 +368,7 @@ func (mrt *MapreduceTests) TestReduceFatal(c *ck.C) {
 	ds := appwrap.NewLocalDatastore(false, nil)
 	defer u.SimpleTasks.gather()
 
-	_, err := Run(appwrap.StubContext(), ds, job)
+	_, err := Run(appwrap.StubContext(), ds, job, mrt.nullLog)
 	c.Check(err, ck.Equals, nil)
 
 	resultUrl := <-u.SimpleTasks.done
