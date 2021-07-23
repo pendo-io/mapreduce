@@ -199,7 +199,7 @@ func mrBackOff() backoff.BackOff {
 
 func runInTransaction(ds appwrap.Datastore, f func(trans appwrap.DatastoreTransaction) error) error {
 	return backoff.Retry(func() error {
-		_, err := ds.RunInTransaction(f, nil)
+		_, err := ds.RunInTransaction(f)
 		return err
 	}, mrBackOff())
 }
