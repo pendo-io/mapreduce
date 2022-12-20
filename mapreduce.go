@@ -160,7 +160,7 @@ func Run(c context.Context, ds appwrap.Datastore, job MapReduceJob, log appwrap.
 	tasks := make([]JobTask, len(readerNames))
 
 	for i, readerName := range readerNames {
-		url := fmt.Sprintf("%s/map?taskKey=%s;reader=%s;shards=%d",
+		url := fmt.Sprintf("%s/map?taskKey=%s&reader=%s&shards=%d",
 			job.UrlPrefix, taskKeys[i].Encode(), readerName,
 			reducerCount)
 
