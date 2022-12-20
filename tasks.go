@@ -518,7 +518,7 @@ func jobFailed(c context.Context, ds appwrap.Datastore, taskIntf TaskInterface, 
 	prevJob, _ := markJobFailed(c, ds, jobKey, log) // this might mark it failed again. whatever.
 
 	if prevJob.OnCompleteUrl != "" {
-		taskIntf.PostStatus(c, fmt.Sprintf("%s?status=error;error=%s;id=%d", prevJob.OnCompleteUrl,
+		taskIntf.PostStatus(c, fmt.Sprintf("%s?status=error&error=%s&id=%d", prevJob.OnCompleteUrl,
 			url.QueryEscape(err.Error()), appwrap.KeyIntID(jobKey)), log)
 	}
 

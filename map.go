@@ -72,7 +72,7 @@ func mapMonitorTask(c context.Context, ds appwrap.Datastore, pipeline MapReduceP
 
 	for shard := range job.WriterNames {
 		if shards := storageNames[shard]; len(shards) > 0 {
-			url := fmt.Sprintf("%s/reduce?taskKey=%s;shard=%d;writer=%s",
+			url := fmt.Sprintf("%s/reduce?taskKey=%s&shard=%d&writer=%s",
 				job.UrlPrefix, taskKeys[len(tasks)].Encode(), shard, url.QueryEscape(job.WriterNames[shard]))
 
 			shardJson, _ := json.Marshal(shards)
@@ -95,7 +95,7 @@ func mapMonitorTask(c context.Context, ds appwrap.Datastore, pipeline MapReduceP
 	// so we'll just start a single task with no inputs
 	if len(tasks) == 0 {
 		log.Infof("no results from maps -- starting noop reduce task")
-		url := fmt.Sprintf("%s/reduce?taskKey=%s;shard=%d;writer=%s",
+		url := fmt.Sprintf("%s/reduce?taskKey=%s&shard=%d&writer=%s",
 			job.UrlPrefix, taskKeys[len(tasks)].Encode(), 0, url.QueryEscape(job.WriterNames[0]))
 
 		tasks = append(tasks, JobTask{
